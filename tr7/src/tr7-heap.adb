@@ -8,6 +8,8 @@ is
    begin
       H.Cells := (others => (Kind => Cell_Free, others => <>));
       H.Mark_Stack := (others => Valid_Cell_Index'First);
+      H.Epoch := 1;
+      H.Collect_Stopped := False;
       H.Mark_Top := 0;
       H.Mark_Failed := False;
       H.Stress_GC := False;
@@ -22,7 +24,7 @@ is
             H.Cells (I).Next_Free := 0;
          end if;
          H.Cells (I).Generation := 0;
-         H.Cells (I).Mark := False;
+         H.Cells (I).Mark_Epoch := 0;
       end loop;
 
       H.Free_Head := 1;
@@ -56,7 +58,7 @@ is
            (Kind       => Kind,
             Generation => Gen,
             Next_Free  => 0,
-            Mark       => False,
+            Mark_Epoch => 0,
             others     => <>);
          H.Free_Head := Next;
          H.Free_Count := H.Free_Count - 1;
@@ -81,7 +83,7 @@ is
       pragma Unreferenced (C);
 
       H.Cells (Valid_Cell_Index (Hd.Index)).Kind := Cell_Free;
-      H.Cells (Valid_Cell_Index (Hd.Index)).Mark := False;
+      H.Cells (Valid_Cell_Index (Hd.Index)).Mark_Epoch := 0;
       H.Cells (Valid_Cell_Index (Hd.Index)).Next_Free := H.Free_Head;
       H.Free_Head := Valid_Cell_Index (Hd.Index);
       H.Free_Count := H.Free_Count + 1;
@@ -275,6 +277,16 @@ is
       C     : Cell;
       Valid : Boolean;
    begin
+      if H.Collect_Stopped then
+         --  Epochs are exhausted, so marking again could only produce a set
+         --  the sweep would misread: report failure instead.  Collect then
+         --  skips the sweep and never frees anything again -- the heap fills
+         --  up and reports exhaustion, which is a Scheme error rather than a
+         --  freed live cell.
+         H.Mark_Failed := True;
+         return;
+      end if;
+
       if not Is_Handle (V) then
          return;
       end if;
@@ -283,7 +295,12 @@ is
       --  Fetch rejects stale handles, freed cells and index 0, so a root that
       --  no longer resolves is simply ignored.
       Fetch (H, Hd, C, Valid);
-      if not Valid or else C.Mark then
+      if not Valid then
+         return;
+      end if;
+      if C.Mark_Epoch = H.Epoch then
+         --  Already rooted in this cycle; its children were queued on the
+         --  first visit, so it must not be queued twice.
          return;
       end if;
 
@@ -292,15 +309,16 @@ is
          return;
       end if;
 
-      H.Cells (Valid_Cell_Index (Hd.Index)).Mark := True;
+      H.Cells (Valid_Cell_Index (Hd.Index)).Mark_Epoch := H.Epoch;
       H.Mark_Top := H.Mark_Top + 1;
       H.Mark_Stack (Valid_Cell_Index (H.Mark_Top)) := Valid_Cell_Index (Hd.Index);
    end Mark_Root;
 
    procedure Collect (H : in out Heap_Type) is
-      Free_Before : constant Natural := H.Free_Count;
-      Idx         : Valid_Cell_Index;
-      C           : Cell;
+      Free_Before  : constant Natural := H.Free_Count;
+      Epoch_Before : constant Unsigned_64 := H.Epoch;
+      Idx          : Valid_Cell_Index;
+      C            : Cell;
    begin
       --  Drain the mark stack.  Each round visits one cell and roots its
       --  children; a cell is pushed at most once, so Max_Cells rounds always
@@ -309,9 +327,11 @@ is
       for K in 1 .. Max_Cells loop
          pragma Loop_Invariant (H.Ready);
          pragma Loop_Invariant (H.Mark_Top <= Max_Cells);
-         --  Marking only flips mark bits, so the free list is still exactly
-         --  what it was when Collect was entered; the sweep relies on that.
+         --  Rooting only writes mark epochs, so the free list is still
+         --  exactly what it was when Collect was entered and the cycle has
+         --  not moved on; the sweep relies on both.
          pragma Loop_Invariant (H.Free_Count = Free_Before);
+         pragma Loop_Invariant (H.Epoch = Epoch_Before);
          exit when H.Mark_Top = 0 or else H.Mark_Failed;
 
          Idx := H.Mark_Stack (Valid_Cell_Index (H.Mark_Top));
@@ -339,45 +359,54 @@ is
 
       if H.Mark_Failed or else H.Mark_Top /= 0 then
          --  Marking did not finish, so the marked set is not known to cover
-         --  everything reachable.  Sweeping now could free a live cell: drop
-         --  the marks, keep every cell where it is, and report failure.  The
-         --  caller keeps running and simply runs out of space, which is a
-         --  Scheme error, never a wrong answer.
-         for I in Valid_Cell_Index loop
-            pragma Loop_Invariant (H.Ready);
-            pragma Loop_Invariant
-              (for all J in Valid_Cell_Index =>
-                 (if J < I then not H.Cells (J).Mark));
-            H.Cells (I).Mark := False;
-         end loop;
+         --  everything reachable: abandon the cycle without sweeping.  The
+         --  epoch still advances, and that is what retires the marks made
+         --  above -- no clearing pass over the arena, and the heap is left
+         --  exactly as it was.  The caller gets less garbage reclaimed: a
+         --  Scheme error at worst, never a freed live cell.
          H.Mark_Top := 0;
          H.Mark_Failed := False;
+         if H.Epoch = Unsigned_64'Last then
+            H.Collect_Stopped := True;
+         else
+            H.Epoch := H.Epoch + 1;
+         end if;
          return;
       end if;
 
-      --  Sweep.  Anything still unmarked and not free is unreachable.
+      --  Sweep.  A cell whose mark epoch is not the current cycle's was never
+      --  reached from a root, so it is unreachable.  This is a single linear
+      --  pass with scalar invariants -- no quantified invariant, which matters
+      --  because -gnata evaluates those at run time and a 4,096 x 4,096 one
+      --  costs milliseconds per collection (docs/findings.md).
       for I in Valid_Cell_Index loop
          pragma Loop_Invariant (H.Ready);
          pragma Loop_Invariant (H.Mark_Top = 0);
          pragma Loop_Invariant (H.Free_Count >= Free_Before);
-         pragma Loop_Invariant
-           (for all J in Valid_Cell_Index =>
-              (if J < I then not H.Cells (J).Mark));
-         if H.Cells (I).Kind /= Cell_Free and then not H.Cells (I).Mark then
+         pragma Loop_Invariant (H.Epoch = Epoch_Before);
+         if H.Cells (I).Mark_Epoch /= H.Epoch
+           and then H.Cells (I).Kind /= Cell_Free
+         then
             --  Unreachable: push it back on the free list, exactly as Release
             --  would.  The guard keeps Free_Count inside its subtype; if the
             --  list were ever full the cell would simply stay allocated.
             if H.Free_Count < Max_Cells then
                H.Cells (I).Kind := Cell_Free;
-               H.Cells (I).Mark := False;
                H.Cells (I).Next_Free := H.Free_Head;
                H.Free_Head := I;
                H.Free_Count := H.Free_Count + 1;
             end if;
-         else
-            H.Cells (I).Mark := False;
          end if;
       end loop;
+
+      --  Retire this cycle's marks.  From the next Mark_Root on, every cell
+      --  looks unmarked, which replaces the clearing pass that used to live
+      --  here.
+      if H.Epoch = Unsigned_64'Last then
+         H.Collect_Stopped := True;
+      else
+         H.Epoch := H.Epoch + 1;
+      end if;
    end Collect;
 
 end Tr7.Heap;

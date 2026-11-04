@@ -161,11 +161,64 @@ Numbers from `scripts/bench.sh` (checks off for the whole graph):
 | the same under `--stress-gc` (~11,000 collections) | 2.3 s |
 | 500 datums of `(display 1)(newline)` | 0.005 s |
 
+A third way to mis-measure, worth recording: switching `TR7_CHECKS` does not
+change any source, so a plain `./scripts/build.sh` after the switch rebuilds
+nothing and the "unchecked" binary is still the checked one.  `bench.sh` is
+immune because it removes the object directories first; a hand-rolled
+comparison is not.
+
 The checked profile keeps quantified loop invariants live on purpose -- they
 are what proves the sweep leaves no stale mark -- and pays for it: the stress
 suite takes 2.3 s there as well, dominated by ~0.2 ms collections (marking a
 3,000-cell live set).  That is acceptable for a test build; anything timed goes
 through `scripts/bench.sh`.
+
+### The regression the suites caught, and what fixed it
+
+Symptom: after the derived forms landed, `tests/gc.scm` went from 0.11 s to
+3.0 s and `--stress-gc` on the same file stopped finishing at all (180 s),
+in **both** the checked and unchecked builds of the time.
+
+Diagnosis, in order:
+
+1. `perf record` + `perf report`: **99.48 % of all samples inside
+   `Tr7.Heap.Collect`**, and `perf annotate` showed the hot instructions as a
+   loop guarded by `cmp $0x1000` (4,096) nested inside itself -- the quantified
+   `for all J in Valid_Cell_Index` invariant of the sweep, evaluated at run
+   time, 4,096 x 4,096 per collection.
+2. Counting collections (`free-cells` temporarily returning the count):
+   `sum` over a 3,000-element list triggered **174 collections**.  That is
+   correct behaviour -- a 3,000-cell live set leaves ~1,050 free cells, so the
+   512-cell low-water mark is crossed every ~17 calls -- but at ~8 ms each it
+   was 1.4 s of the 1.42 s runtime.
+
+Fix: **mark epochs**.  A cell is marked when `Mark_Epoch = Heap.Epoch`, and
+`Epoch` advances after every sweep, retiring the cycle's marks in one
+assignment.  The clearing pass and both quantified invariants disappeared, so
+the sweep is a single linear pass with scalar invariants only:
+
+| workload | before | after |
+| --- | --- | --- |
+| `tests/gc.scm` | 3.0 s | 0.15 s |
+| `--stress-gc tests/gc.scm` | > 60 s | 3.8 s |
+| `sum` over 3,000 cells | 1.41 s | 0.10 s |
+| samples in `Collect` (perf) | 99.5 % | 9.5 % |
+
+Two structural lessons: a quantified invariant is a *run-time* cost under
+`-gnata`, so it must not sit in a loop that runs per cell; and a design that
+needs an O(n^2) proof invariant usually wants a different design (epochs make
+"no stale marks" a scalar postcondition instead).
+
+The same profile names what is left: after the fix the stress run spends
+52 % in `memmove` and 25 % in `Mark_Root`/`Fetch` -- the 330-byte cell copied
+by value out of the arena on every visit.  That cost is bounded by the arena
+size (~1.4 ms per collection at 4,096 cells), so it cannot run away, but the
+next GC optimisation is to stop copying: read the fields needed for marking in
+place instead of `Fetch`-ing a whole `Cell`.
+
+Tooling: `perf` (record/report/annotate) was the right instrument and is what
+the numbers above come from; `valgrind --tool=callgrind` is the fallback when
+instruction-level attribution of a microsecond-scale function is needed.
 
 `free-cells` is a small non-standard extension primitive: it lets the GC suite
 assert that garbage was actually reclaimed, not merely that nothing crashed.

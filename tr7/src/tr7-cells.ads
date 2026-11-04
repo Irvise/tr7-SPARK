@@ -30,7 +30,10 @@ is
       Kind       : Cell_Kind := Cell_Free;
       Generation : Unsigned_32 := 0;
       Next_Free  : Cell_Index := 0;
-      Mark       : Boolean := False;
+      --  Marked means "marked in cycle Mark_Epoch": the collector advances
+      --  Heap.Epoch after every sweep, which retires all earlier marks in one
+      --  assignment instead of a pass over the arena (see Tr7.Heap).
+      Mark_Epoch : Unsigned_64 := 0;
 
       --  Pair, closure parameters/body, environment bindings.
       Car : Value := Nil_Value;

@@ -100,4 +100,16 @@ is
    function Same_Handle (A, B : Handle) return Boolean is
      (A.Index = B.Index and then A.Generation = B.Generation);
 
+   --  The relation behind `eq?`, and behind the datum lists of `case`
+   --  (which R7RS compares with memv): immediate values compare by content,
+   --  heap values -- symbols, strings, pairs -- by identity.
+   function Same_Value (A, B : Value) return Boolean is
+     (if A.Kind /= B.Kind then False
+      else (case A.Kind is
+               when Kind_Void | Kind_Nil | Kind_Unspecified => True,
+               when Kind_Boolean   => A.B = B.B,
+               when Kind_Fixnum    => A.N = B.N,
+               when Kind_Character => A.C = B.C,
+               when Kind_Handle    => Same_Handle (A.H, B.H)));
+
 end Tr7.Values;

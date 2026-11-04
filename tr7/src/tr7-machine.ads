@@ -36,7 +36,9 @@ is
       K_Cond_App,
       --  when / unless: run the body only if the test agrees with the form.
       K_When,
-      K_Unless);
+      K_Unless,
+      --  case: the key has been evaluated and the clauses are waiting.
+      K_Case);
 
    type Frame is record
       Kind : Frame_Kind := K_If;

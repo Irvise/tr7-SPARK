@@ -333,8 +333,8 @@ is
       end if;
       Check_Arity (Len, 2, 2, Good);
       if not Good then
-      Status := Error_Wrong_Arity;
-      return;
+         Status := Error_Wrong_Arity;
+         return;
       end if;
       Cons (H, Arr (1), Arr (2), Result, Good);
       Status := (if Good then No_Error else Error_Heap_Full);
@@ -359,8 +359,8 @@ is
       end if;
       Check_Arity (Len, 1, 1, Good);
       if not Good then
-      Status := Error_Wrong_Arity;
-      return;
+         Status := Error_Wrong_Arity;
+         return;
       end if;
       Car_Of (H, Arr (1), Result, Good);
       Status := (if Good then No_Error else Error_Type);
@@ -385,8 +385,8 @@ is
       end if;
       Check_Arity (Len, 1, 1, Good);
       if not Good then
-      Status := Error_Wrong_Arity;
-      return;
+         Status := Error_Wrong_Arity;
+         return;
       end if;
       Cdr_Of (H, Arr (1), Result, Good);
       Status := (if Good then No_Error else Error_Type);
@@ -451,8 +451,6 @@ is
       Arr  : Value_Array;
       Len  : Natural;
       Good : Boolean;
-      A, B : Value;
-      Equal : Boolean;
    begin
       Result := Void_Value;
       Status := Error_Type;
@@ -462,29 +460,11 @@ is
       end if;
       Check_Arity (Len, 2, 2, Good);
       if not Good then
-      Status := Error_Wrong_Arity;
-      return;
+         Status := Error_Wrong_Arity;
+         return;
       end if;
 
-      A := Arr (1);
-      B := Arr (2);
-      if A.Kind /= B.Kind then
-         Equal := False;
-      else
-         case A.Kind is
-            when Kind_Void | Kind_Nil | Kind_Unspecified =>
-               Equal := True;
-            when Kind_Boolean =>
-               Equal := A.B = B.B;
-            when Kind_Fixnum =>
-               Equal := A.N = B.N;
-            when Kind_Character =>
-               Equal := A.C = B.C;
-            when Kind_Handle =>
-               Equal := Same_Handle (A.H, B.H);
-         end case;
-      end if;
-      Result := Bool (Equal);
+      Result := Bool (Same_Value (Arr (1), Arr (2)));
       Status := No_Error;
    end Eq_Prim;
 
@@ -509,8 +489,8 @@ is
       end if;
       Check_Arity (Len, 1, 1, Good);
       if not Good then
-      Status := Error_Wrong_Arity;
-      return;
+         Status := Error_Wrong_Arity;
+         return;
       end if;
 
       if P = P_Null_P then
@@ -556,8 +536,8 @@ is
       end if;
       Check_Arity (Len, 1, 1, Good);
       if not Good then
-      Status := Error_Wrong_Arity;
-      return;
+         Status := Error_Wrong_Arity;
+         return;
       end if;
 
       Write_Value (H, Arr (1), B, W, Display);

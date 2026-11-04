@@ -37,7 +37,7 @@ then arguments left to right, accumulating a reversed argument list.
 
 Supported forms: `quote`, `if`, `lambda`, `define`, `set!`, `begin`,
 `let`, `let*`, `letrec`, `and`, `or`, `cond` (with `=>` and `else`),
-`when`, `unless`, and procedure application.  `let` and its
+`when`, `unless`, `case`, and procedure application.  `let` and its
 relatives are driven by one frame kind (`K_Bind`) that stores the binding just
 produced and the environment the remaining initializers run in: parallel `let`
 evaluates them in the enclosing environment, `let*`/`letrec` in the new one.
@@ -46,7 +46,9 @@ walks its clauses one at a time through `Start_Cond` -- a failed test returns
 to `K_Cond`, which starts the next clause, so the walk rides the evaluator's
 run loop instead of needing a loop of its own; `(=> <expression>)` parks the
 test value in `K_Cond_App` while the procedure is evaluated and then calls it
-with that value.
+with that value.  `case` evaluates its key first (`K_Case`), then scans each
+clause's datum list with `Same_Value` -- `memv`'s relation, and `eq?`'s --
+matching immediate values by content and heap values by identity.
 
 Every sequence-like form (`begin`, a lambda body, `let` bodies, the operands of
 `and`/`or`) is in tail position when only one form remains, so no frame is
@@ -111,9 +113,17 @@ environment are a *complete* root set, and no step-local object is alive.
 - `Tr7.Machine.Collect_Garbage` roots that state with `Tr7.Heap.Mark_Root` and
   then calls `Tr7.Heap.Collect`.
 - `Collect` drains a bounded mark stack (each cell is pushed at most once, so
-  `Max_Cells` entries suffice), then sweeps unmarked cells back onto the free
-  list, in place, without touching their generation -- the generation check on
-  the next allocation is what rejects stale handles.
+  `Max_Cells` entries suffice), then sweeps every cell whose mark *epoch* is
+  not the current cycle's back onto the free list, in place, without touching
+  their generation -- the generation check on the next allocation is what
+  rejects stale handles.
+- Marks are epochs, not bits: a cell is marked when `Mark_Epoch = Epoch`, and
+  `Epoch` advances after every sweep, retiring the whole cycle's marks in one
+  assignment.  That removes both the clearing pass over the arena and, with it,
+  the quantified loop invariant that `-gnata` evaluates at run time (4,096 x
+  4,096 tests per collection -- `docs/findings.md`).  After 2**64 cycles
+  `Collect_Stopped` latches and the collector stops freeing altogether rather
+  than ever sweeping against a stale epoch.
 - If marking cannot complete (a full mark stack), the cycle is abandoned: every
   mark is dropped and *no* cell is freed.  A failed collection therefore only
   leaves garbage in place; it can never free a live object.  `Collect` has no

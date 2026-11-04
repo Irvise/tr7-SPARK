@@ -504,6 +504,102 @@ is
       M.Mode := Mode_Eval;
    end Start_Cond;
 
+   --  case: the key has already been evaluated, so its clauses can be scanned
+   --  against the value directly.  A datum list is matched with Same_Value --
+   --  memv's relation, and `eq?`'s -- and the clause walk, like cond's, rides
+   --  the evaluator's run loop rather than calling itself.
+   procedure Start_Case
+     (H       : Heap_Type;
+      M       : in out Machine;
+      Clauses : Value;
+      Key     : Value;
+      Env     : Handle)
+     with Pre => H.Ready
+   is
+      Pending : Value := Clauses;
+      Clause  : Value;
+      Rest    : Value;
+      Datums  : Value;
+      Forms   : Value;
+      Cur     : Value;
+      Next    : Value;
+      Datum   : Value;
+      Match   : Boolean;
+      Good    : Boolean;
+   begin
+      loop
+         if Is_Nil (Pending) then
+            M.Result := Unspecified_Value;
+            M.Mode := Mode_Return;
+            return;
+         end if;
+
+         Car_Of (H, Pending, Clause, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Cdr_Of (H, Pending, Rest, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Car_Of (H, Clause, Datums, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Cdr_Of (H, Clause, Forms, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+
+         if Is_Symbol_Named (H, Datums, "else") then
+            if not Is_Nil (Rest) then
+               Fail (M, Error_Malformed);
+               return;
+            end if;
+            Start_Body (H, M, Forms, Env);
+            return;
+         end if;
+
+         Cur := Datums;
+         Match := False;
+         while not Is_Nil (Cur) loop
+            Car_Of (H, Cur, Datum, Good);
+            if not Good then
+               Fail (M, Error_Malformed);
+               return;
+            end if;
+            if Same_Value (Datum, Key) then
+               Match := True;
+               exit;
+            end if;
+            Cdr_Of (H, Cur, Next, Good);
+            if not Good then
+               Fail (M, Error_Malformed);
+               return;
+            end if;
+            Cur := Next;
+         end loop;
+
+         if Match then
+            if Is_Nil (Forms) then
+               --  R7RS: a clause with no result expressions yields an
+               --  unspecified value.
+               M.Result := Unspecified_Value;
+               M.Mode := Mode_Return;
+               return;
+            end if;
+            Start_Body (H, M, Forms, Env);
+            return;
+         end if;
+
+         Pending := Rest;
+      end loop;
+   end Start_Case;
+
    procedure Eval_Pair
      (H : in out Heap_Type;
       M : in out Machine)
@@ -760,6 +856,28 @@ is
          return;
       elsif Is_Symbol_Named (H, Head, "letrec") then
          Start_Let (H, M, Let_Sequential);
+         return;
+      elsif Is_Symbol_Named (H, Head, "case") then
+         Cadr_Of (H, M.Ctl, Test, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Cddr_Of (H, M.Ctl, Tail2, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+
+         F := (Kind => K_Case, Expr => Tail2, Env => M.Env, others => <>);
+         Push (M, F, Good);
+         if not Good then
+            Fail (M, Error_Step_Limit);
+            return;
+         end if;
+
+         M.Ctl := Test;
+         M.Mode := Mode_Eval;
          return;
       elsif Is_Symbol_Named (H, Head, "cond") then
          Cdr_Of (H, M.Ctl, Rest, Good);
@@ -1033,6 +1151,12 @@ is
             M.Ctl := Init;
             M.Env := F.Env;
             M.Mode := Mode_Eval;
+
+         when K_Case =>
+            --  The key is copied out of M first: SPARK forbids passing a
+            --  component of M together with M itself.
+            First := M.Result;
+            Start_Case (H, M, F.Expr, First, F.Env);
 
          when K_Cond =>
             --  The environment the clause forms run in is the one the clause

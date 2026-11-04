@@ -29,6 +29,17 @@ is
       Mark_Stack  : Mark_Array := (others => Valid_Cell_Index'First);
       Mark_Top    : Natural range 0 .. Max_Cells := 0;
       Mark_Failed : Boolean := False;
+      --  Collection cycle.  A cell is marked when its Mark_Epoch equals Epoch,
+      --  and Epoch advances after every sweep, which retires the cycle's marks
+      --  without touching the arena -- no clearing pass, and no quantified
+      --  invariant in the sweep loop (which cost O(n^2) at run time under
+      --  -gnata; see docs/findings.md).  Zero is reserved for "never marked"
+      --  and Epoch starts at 1, so a fresh cell can never look marked.
+      Epoch         : Unsigned_64 := 1;
+      --  Set when Epoch can no longer advance (2**64 cycles).  Collection then
+      --  stops for good: the heap keeps every cell it has, reports exhaustion
+      --  if it fills, and never frees anything against stale marks.
+      Collect_Stopped : Boolean := False;
       --  Collect at every safe point instead of only below GC_Low_Water; the
       --  REPL enables it with --stress-gc so the suites exercise the
       --  collector continuously.
@@ -177,17 +188,20 @@ is
    --  Marking cannot fail silently: a full mark stack sets Mark_Failed, and
    --  Collect then abandons the cycle without sweeping -- which can only leave
    --  garbage in place, never free a live cell.
-   --  Rooting only flips mark bits: it never allocates, never frees and never
-   --  touches the free list, which is what lets Collect reason about
-   --  Free_Count across the whole drain phase.
+   --  Rooting only writes mark epochs: it never allocates, never frees, never
+   --  touches the free list and never advances the cycle, which is what lets
+   --  Collect reason about Free_Count and Epoch across the whole drain phase.
    procedure Mark_Root (H : in out Heap_Type; V : Value)
      with
        Pre  => H.Ready,
-       Post => H.Ready and then H.Free_Count = H.Free_Count'Old;
+       Post => H.Ready
+         and then H.Free_Count = H.Free_Count'Old
+         and then H.Epoch = H.Epoch'Old;
 
-   --  Collect has no success flag on purpose: when marking cannot complete
-   --  the cycle is abandoned and the heap is left byte-for-byte as it was, so
-   --  the only consequence is that less garbage is reclaimed.
+   --  Collect has no success flag on purpose: when marking cannot complete the
+   --  cycle is abandoned without sweeping, so the only consequence is that less
+   --  garbage is reclaimed.  Every path retires the cycle's marks by advancing
+   --  Epoch, which is why the postconditions below are all scalar.
    procedure Collect (H : in out Heap_Type)
      with
        Pre  => H.Ready,
@@ -195,6 +209,6 @@ is
          and then H.Mark_Top = 0
          and then not H.Mark_Failed
          and then H.Free_Count >= H.Free_Count'Old
-         and then (for all I in Valid_Cell_Index => not H.Cells (I).Mark);
+         and then H.Epoch >= H.Epoch'Old;
 
 end Tr7.Heap;

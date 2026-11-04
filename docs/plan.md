@@ -172,10 +172,10 @@ Concrete order, each step keeping the proof and the suites green.
    5 us).  Both are fixed; see `docs/findings.md`.
 2. **Derived binding forms** -- `let`, `let*`, `letrec`, `and`, `or` are in
    (`tests/forms.scm`: parallel binding swaps, sequential rebinding, mutual
-   `letrec` recursion, short-circuit side effects), and so are `cond` (with
-   `=>` and `else`, `tests/cond.scm`), `when` and `unless`.  Still to come:
-   `case` (needs a datum-membership predicate shared with `eq?`), `do`,
-   `quasiquote` -- all as frame kinds in the evaluator; the reader stays
+   `letrec` recursion, short-circuit side effects), so are `cond` (with `=>`
+   and `else`, `tests/cond.scm`), `when`, `unless`, and `case`
+   (`tests/case.scm`, sharing `Same_Value` with `eq?`).  Still to come: `do`
+   and `quasiquote` -- all as frame kinds in the evaluator; the reader stays
    syntax-only.
 3. **Strings and vectors** -- `string-length`, `string-ref`, `string-append`,
    `substring`, `string=?`, vectors and bytevectors as chunked cells with
