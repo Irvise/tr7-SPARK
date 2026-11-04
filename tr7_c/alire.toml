@@ -1,0 +1,16 @@
+name = "tr7_c"
+description = "C ABI subset for the TR7-SPARK Scheme core."
+version = "0.1.0-dev"
+
+authors = ["TR7-SPARK contributors"]
+maintainers = ["TR7-SPARK contributors <noreply@example.com>"]
+maintainers-logins = ["tr7-spark"]
+licenses = "0BSD"
+website = ""
+tags = []
+
+[[depends-on]]
+tr7 = "~0.1.0-dev"
+
+[[pins]]
+tr7 = { path='../tr7' }

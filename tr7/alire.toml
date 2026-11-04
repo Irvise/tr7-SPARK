@@ -1,0 +1,10 @@
+name = "tr7"
+description = "Verified R7RS Scheme core in Ada 2012/SPARK."
+version = "0.1.0-dev"
+
+authors = ["TR7-SPARK contributors"]
+maintainers = ["TR7-SPARK contributors <noreply@example.com>"]
+maintainers-logins = ["tr7-spark"]
+licenses = "0BSD"
+website = ""
+tags = []

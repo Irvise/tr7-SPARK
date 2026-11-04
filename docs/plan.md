@@ -1,0 +1,140 @@
+# TR7-SPARK plan
+
+## Goal
+
+A small, dependency-free Ada 2012/SPARK implementation of a core R7RS-small
+Scheme interpreter, with a C ABI subset and a REPL.
+
+"Fully verified" for this project means:
+
+- the `tr7` library is `SPARK_Mode => On` throughout and proves at GNATprove
+  level 4 with `--checks-as-errors`;
+- zero unproved checks, zero justified checks, zero `Assume`, zero
+  `pragma Annotate`, zero `Suppress` in `tr7`;
+- functional contracts cover handle validity, arena bounds, free-list
+  integrity, mark/sweep safety, CEK state invariants, continuation bounds,
+  environment lookup, arithmetic, string/vector/bytevector bounds, reader
+  progress and writer bounds;
+- OS I/O, C pointers, clocks and process control are isolated in `tr7_c` and
+  `tr7i`, which are the documented trusted boundary;
+- Scheme behaviour is validated by a focused conformance suite, stress-GC runs
+  and (optionally) differential testing against upstream C TR7.
+
+It does not claim a machine-checked proof of the full R7RS semantics.
+
+## v1 scope
+
+In v1:
+
+- datums: booleans, fixnums, flonums, chars, strings, symbols, pairs, vectors,
+  bytevectors, procedures, string ports, EOF, unspecified;
+- forms: `quote`, `if`, `lambda`, `define`, `set!`, `begin`, `let`, `let*`,
+  `letrec`, `cond`, `case`, `and`, `or`, `when`, `unless`, `do`, `quasiquote`;
+- procedures: arithmetic/comparison, pairs/lists, strings/chars,
+  vectors/bytevectors, predicates, `apply`, `map`, `for-each`,
+  `display`/`write`/`newline`, `read`, `error`, `values`/`call-with-values`,
+  escaping-only `call/cc`, `dynamic-wind`, string ports;
+- memory: engine-owned fixed-size cell arena, index+generation handles,
+  simple mark-sweep GC;
+- C ABI: core subset implemented, all other `tr7.h` symbols present as stubs;
+- REPL and script runner.
+
+Not in v1: `syntax-rules`, libraries/imports, `eval`/`load`, records, SRFIs,
+full Unicode tables, bignums/rationals/complex, full re-entrant `call/cc`, the
+full TR7 debug/trace/extension API, and bit-level tagged-pointer ABI
+compatibility.
+
+## Crates
+
+```
+TR7-SPARK/
+  tr7/        verified core, SPARK_Mode On, no OS code
+  tr7_c/      C ABI subset + generated stubs, SPARK_Mode Off
+  tr7i/       REPL/CLI, SPARK_Mode Off
+  tests/      core .scm/.expected suite, C demo, stress-GC runs
+  scripts/    build.sh, prove.sh, test.sh
+  docs/       architecture.md, verification.md
+  Makefile
+```
+
+Commands:
+
+```sh
+alr toolchain --select --disable-assistant gnat_native=16.1.0 gprbuild=26.0.1
+alr init --lib tr7
+alr init --lib tr7_c
+alr init --bin tr7i
+(cd tr7_c && alr with tr7 --use=../tr7)
+(cd tr7i && alr with tr7 --use=../tr7)
+```
+
+`tr7` has no crate dependencies. `gnatprove` is a development tool only and is
+not declared as a crate dependency, so `alr build` requires only GNAT and GPR.
+
+## Core design
+
+- CEK machine: `Control`, `Environment` and `Continuation` are handles; one
+  `Step` function plus a run loop. Tail calls are natural.
+- Fixed-size cells: pairs, closures, environment frames, continuation frames,
+  symbol chunks, string chunks, vector chunks, bytevector chunks, procedures.
+- Handles are index + generation. A stale handle is an error, not memory
+  corruption. The engine owns the cell array.
+- Mark-sweep GC: explicit roots (machine state, global environment, symbol
+  table, constants, ports, temporary roots), mark stack and free list.
+- Restricted `call/cc`: escape frame valid only within its dynamic extent.
+- Environments: association-list frames with a parent handle.
+- Ports: string ports in `tr7`; `tr7i` loads files into strings and prints
+  output. The verified core never touches the OS.
+- Numbers: 62-bit fixnum + double. Pure Ada `sqrt` and `expt`; pure Ada
+  `%g`-style formatting. No `libm` dependency in the core.
+- Reader/writer: bounded buffers, clear error positions, depth/visited limits.
+- Primitives dispatch through an enum + `case`, avoiding `'Access` tables.
+
+## C ABI
+
+- `tr7_c` exposes the core subset with original names/signatures where
+  possible: engine lifecycle, eval string/file, define/ref, apply/call, value
+  constructors, predicates, accessors, error status.
+- All remaining `tr7.h` symbols are generated as stubs that return
+  `TR7_VOID`/false/null/0 and never crash.
+- `tr7_t` is an opaque tagged 64-bit handle at the boundary; the Ada core uses
+  its own `Value`/`Handle` types.
+- Function-level compatibility is guaranteed. Bit-level compatibility with
+  TR7's tagged pointers and representation macros is not.
+
+## Verification
+
+- `tr7`: `SPARK_Mode => On`, level 4, `--checks-as-errors`, zero
+  unproved/justified checks, zero `Assume`/`Annotate`/`Suppress`.
+- GC safety proved first; reachability/liveness (`marked = reachable`) is the
+  main M5 proof goal. Stress-GC mode collects at every allocation.
+- `scripts/prove.sh` clears `obj/gnatprove`, runs sequentially and greps the
+  summary for `medium:`/`high:`/`unproved`/`failed`; exit code 0 alone is not
+  trusted.
+
+## Milestones
+
+| Phase | Effort | Deliverable |
+|---|---|---|
+| M0 | 1-2 days | Three crates, toolchain, pins, build/prove scripts, walking skeleton (`(+ 1 2)`) |
+| M1 | 1-2 weeks | Values, arena, symbols, numbers, pairs, strings, vectors, bytevectors; GC skeleton |
+| M2 | 2-3 weeks | Reader/writer, full CEK machine, core special forms, tail calls |
+| M3 | 2 weeks | Core primitives, errors, restricted `call/cc`, `dynamic-wind`, `values` |
+| M4 | 2 weeks | String ports, REPL, C ABI subset + generated stubs, core test suite |
+| M5 | 2-3 weeks | Mark-sweep GC proof, Gold hardening, contracts, benchmarks, report |
+
+Estimated hand-written core size: 6-8k lines of Ada, plus generated C ABI stubs
+and tests.
+
+## Proof practices adopted from the Ironclad campaign
+
+- Prefer structural subtypes and representation aspects over re-proved
+  invariants.
+- Avoid nonlinear arithmetic in contracts.
+- Measure proof time cold; clear `obj/gnatprove` before per-unit runs.
+- Run GNATprove sequentially; a syntax error in any unit poisons all runs.
+- Never hide real checks with `Suppress`; remove unproved obligations by design.
+- Keep `SPARK_Mode Off` bodies scoped and documented.
+- Never pass a record and one of its own fields to the same subprogram.
+- Fully initialize `out` parameters.
+- Prefer expression functions when preconditions mention them.
