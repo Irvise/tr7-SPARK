@@ -27,7 +27,16 @@ is
       K_Bind,
       --  and / or: stop as soon as the value decides the answer.
       K_And,
-      K_Or);
+      K_Or,
+      --  cond: the test of the current clause has been evaluated, so the rest
+      --  of that clause and the remaining clauses decide what happens next.
+      K_Cond,
+      --  cond with =>: the procedure to call has been evaluated and the value
+      --  of the test is waiting in Alt.
+      K_Cond_App,
+      --  when / unless: run the body only if the test agrees with the form.
+      K_When,
+      K_Unless);
 
    type Frame is record
       Kind : Frame_Kind := K_If;

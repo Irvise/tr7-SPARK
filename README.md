@@ -22,11 +22,12 @@ garbage was actually reclaimed.  `free-cells` is a small extension primitive
 used by that suite.
 
 Supported special forms: `quote`, `if`, `lambda`, `define`, `set!`, `begin`,
-`let`, `let*`, `letrec`, `and`, `or` (see `tests/forms.scm`).
+`let`, `let*`, `letrec`, `and`, `or`, `cond`, `when`, `unless`
+(`tests/forms.scm`, `tests/cond.scm`).
 
-Not yet present: `cond`/`case`/`when`/`unless`/`do`, strings beyond literals,
-vectors, full numeric tower, `call/cc`, ports beyond strings, the C ABI body,
-and `syntax-rules`.
+Not yet present: `case`/`do`/`quasiquote`, strings beyond literals, vectors,
+full numeric tower, `call/cc`, ports beyond strings, the C ABI body, and
+`syntax-rules`.
 
 ## Build
 

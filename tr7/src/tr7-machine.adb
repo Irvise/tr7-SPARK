@@ -431,6 +431,79 @@ is
       M.Mode := Mode_Eval;
    end Start_Let;
 
+   --  Enter the next cond clause.  Advancing after a failed test comes back
+   --  here, so the clause walk happens one step at a time and needs no loop of
+   --  its own: the evaluator's run loop is the driver.
+   procedure Start_Cond
+     (H       : Heap_Type;
+      M       : in out Machine;
+      Clauses : Value)
+     with Pre => H.Ready
+   is
+      --  SPARK forbids passing a component of M together with M itself, so the
+      --  environment the clause forms run in is snapshotted on entry.  Both
+      --  callers have already put the right environment in M.Env.
+      Clause_Env : constant Handle := M.Env;
+      Clause : Value;
+      Rest   : Value;
+      Test   : Value;
+      Forms  : Value;
+      F      : Frame;
+      Good   : Boolean;
+   begin
+      if Is_Nil (Clauses) then
+         M.Result := Unspecified_Value;
+         M.Mode := Mode_Return;
+         return;
+      end if;
+
+      Car_Of (H, Clauses, Clause, Good);
+      if not Good then
+         Fail (M, Error_Malformed);
+         return;
+      end if;
+      Cdr_Of (H, Clauses, Rest, Good);
+      if not Good then
+         Fail (M, Error_Malformed);
+         return;
+      end if;
+      Car_Of (H, Clause, Test, Good);
+      if not Good then
+         Fail (M, Error_Malformed);
+         return;
+      end if;
+
+      if Is_Symbol_Named (H, Test, "else") then
+         --  else has no test: it runs its body, and R7RS requires it to be the
+         --  last clause.
+         if not Is_Nil (Rest) then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Cdr_Of (H, Clause, Forms, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Start_Body (H, M, Forms, Clause_Env);
+         return;
+      end if;
+
+      F := (Kind => K_Cond,
+            Args => Clause,
+            Expr => Rest,
+            Env  => Clause_Env,
+            others => <>);
+      Push (M, F, Good);
+      if not Good then
+         Fail (M, Error_Step_Limit);
+         return;
+      end if;
+
+      M.Ctl := Test;
+      M.Mode := Mode_Eval;
+   end Start_Cond;
+
    procedure Eval_Pair
      (H : in out Heap_Type;
       M : in out Machine)
@@ -688,6 +761,42 @@ is
       elsif Is_Symbol_Named (H, Head, "letrec") then
          Start_Let (H, M, Let_Sequential);
          return;
+      elsif Is_Symbol_Named (H, Head, "cond") then
+         Cdr_Of (H, M.Ctl, Rest, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Start_Cond (H, M, Rest);
+         return;
+      elsif Is_Symbol_Named (H, Head, "when")
+        or else Is_Symbol_Named (H, Head, "unless")
+      then
+         Cadr_Of (H, M.Ctl, Test, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Cddr_Of (H, M.Ctl, Tail2, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+
+         if Is_Symbol_Named (H, Head, "when") then
+            F := (Kind => K_When, Expr => Tail2, Env => M.Env, others => <>);
+         else
+            F := (Kind => K_Unless, Expr => Tail2, Env => M.Env, others => <>);
+         end if;
+         Push (M, F, Good);
+         if not Good then
+            Fail (M, Error_Step_Limit);
+            return;
+         end if;
+
+         M.Ctl := Test;
+         M.Mode := Mode_Eval;
+         return;
       end if;
 
       --  Ordinary application: evaluate the operator first.
@@ -924,6 +1033,88 @@ is
             M.Ctl := Init;
             M.Env := F.Env;
             M.Mode := Mode_Eval;
+
+         when K_Cond =>
+            --  The environment the clause forms run in is the one the clause
+            --  was started in: the test itself may have changed M.Env.
+            M.Env := F.Env;
+
+            if not Is_True (M.Result) then
+               Start_Cond (H, M, F.Expr);
+               return;
+            end if;
+
+            --  The test passed.  No forms means the test value is the answer;
+            --  a (=> <expression>) clause calls that expression with it.
+            Cdr_Of (H, F.Args, Rest, Good);
+            if not Good then
+               Fail (M, Error_Malformed);
+               return;
+            end if;
+            if Is_Nil (Rest) then
+               M.Mode := Mode_Return;
+               return;
+            end if;
+
+            Car_Of (H, Rest, First, Good);
+            if not Good then
+               Fail (M, Error_Malformed);
+               return;
+            end if;
+
+            if Is_Symbol_Named (H, First, "=>") then
+               Cdr_Of (H, Rest, Init, Good);
+               if not Good or else Is_Nil (Init) then
+                  Fail (M, Error_Malformed);
+                  return;
+               end if;
+               Car_Of (H, Init, Proper, Good);
+               if not Good then
+                  Fail (M, Error_Malformed);
+                  return;
+               end if;
+               Cdr_Of (H, Init, New_Args, Good);
+               if not Good or else not Is_Nil (New_Args) then
+                  Fail (M, Error_Malformed);
+                  return;
+               end if;
+
+               F.Kind := K_Cond_App;
+               F.Alt := M.Result;
+               Push (M, F, Good);
+               if not Good then
+                  Fail (M, Error_Step_Limit);
+                  return;
+               end if;
+               M.Ctl := Proper;
+               M.Mode := Mode_Eval;
+               return;
+            end if;
+
+            Start_Body (H, M, Rest, F.Env);
+
+         when K_Cond_App =>
+            --  M.Result is the procedure `=>` named; call it with the value of
+            --  the test, which has been waiting in Alt.  The procedure goes
+            --  through a local because SPARK forbids passing a component of M
+            --  together with M itself.
+            First := M.Result;
+            Cons (H, F.Alt, Nil_Value, New_Args, Good);
+            if not Good then
+               Fail (M, Error_Heap_Full);
+               return;
+            end if;
+            Apply_Procedure (H, First, New_Args, M, B);
+
+         when K_When | K_Unless =>
+            if (F.Kind = K_When and then Is_True (M.Result))
+              or else (F.Kind = K_Unless and then not Is_True (M.Result))
+            then
+               Start_Body (H, M, F.Expr, F.Env);
+            else
+               M.Result := Unspecified_Value;
+               M.Mode := Mode_Return;
+            end if;
 
          when K_And | K_Or =>
             --  A false operand decides `and`, a true one decides `or`; in

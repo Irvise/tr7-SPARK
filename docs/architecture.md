@@ -36,11 +36,17 @@ calls run in constant stack space.  Applications evaluate the operator first,
 then arguments left to right, accumulating a reversed argument list.
 
 Supported forms: `quote`, `if`, `lambda`, `define`, `set!`, `begin`,
-`let`, `let*`, `letrec`, `and`, `or`, and procedure application.  `let` and its
+`let`, `let*`, `letrec`, `and`, `or`, `cond` (with `=>` and `else`),
+`when`, `unless`, and procedure application.  `let` and its
 relatives are driven by one frame kind (`K_Bind`) that stores the binding just
 produced and the environment the remaining initializers run in: parallel `let`
 evaluates them in the enclosing environment, `let*`/`letrec` in the new one.
-`and`/`or` use `K_And`/`K_Or` and return the value that decided them.
+`and`/`or` use `K_And`/`K_Or` and return the value that decided them.  `cond`
+walks its clauses one at a time through `Start_Cond` -- a failed test returns
+to `K_Cond`, which starts the next clause, so the walk rides the evaluator's
+run loop instead of needing a loop of its own; `(=> <expression>)` parks the
+test value in `K_Cond_App` while the procedure is evaluated and then calls it
+with that value.
 
 Every sequence-like form (`begin`, a lambda body, `let` bodies, the operands of
 `and`/`or`) is in tail position when only one form remains, so no frame is
