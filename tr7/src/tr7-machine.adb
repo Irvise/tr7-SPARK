@@ -1104,6 +1104,51 @@ is
          return;
       end if;
 
+      if Is_Symbol_Named (H, Head, "apply") then
+         --  (apply proc arg ... last-list): the operands are walked like an
+         --  application, but the final one is spread instead of passed.  The
+         --  marker travels in the frame's Sym, which ordinary application
+         --  leaves alone.
+         Cdr_Of (H, M.Ctl, Rest, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         if Is_Nil (Rest) then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Car_Of (H, Rest, Tmp, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Cdr_Of (H, Rest, Tail2, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         if Is_Nil (Tail2) then
+            --  (apply f) has no list to spread.
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+
+         F := (Kind => K_Operator,
+               Expr => Tail2,
+               Env  => M.Env,
+               Sym  => True_Value,
+               others => <>);
+         Push (M, F, Good);
+         if not Good then
+            Fail (M, Error_Step_Limit);
+            return;
+         end if;
+         M.Ctl := Tmp;
+         M.Mode := Mode_Eval;
+         return;
+      end if;
+
       --  Ordinary application: evaluate the operator first.
       Cdr_Of (H, M.Ctl, Rest, Good);
       if not Good then
@@ -1189,6 +1234,10 @@ is
       Rest     : Value;
       Var      : Value;
       Init     : Value;
+      Acc      : Value;
+      Cur      : Value;
+      N_Last   : Natural;
+      N_Pfx    : Natural;
    begin
       if M.Top = 0 then
          M.Mode := Mode_Halt;
@@ -1466,6 +1515,59 @@ is
             M.Mode := Mode_Eval;
 
          when K_Argument =>
+            if Is_Nil (F.Expr)
+              and then F.Sym.Kind = Kind_Boolean
+              and then F.Sym.B
+            then
+               --  apply: the final argument is a list to spread.  F.Args holds
+               --  the earlier arguments reversed, so walking it and consing
+               --  each onto that list yields them in order and shares its
+               --  tail.  Length validates that the last argument really is a
+               --  proper list, and the pair of counts keeps the result inside
+               --  Max_List_Length.
+               Length (H, M.Result, N_Last, Good);
+               if not Good then
+                  Fail (M, Error_Type);
+                  return;
+               end if;
+               Length (H, F.Args, N_Pfx, Good);
+               if not Good then
+                  Fail (M, Error_Malformed);
+                  return;
+               end if;
+               if N_Last + N_Pfx > Max_List_Length then
+                  Fail (M, Error_Overflow);
+                  return;
+               end if;
+
+               Acc := M.Result;
+               Cur := F.Args;
+               while not Is_Nil (Cur) loop
+                  pragma Loop_Invariant (H.Ready);
+                  Car_Of (H, Cur, First, Good);
+                  if not Good then
+                     Fail (M, Error_Malformed);
+                     return;
+                  end if;
+                  Cons (H, First, Acc, New_Args, Good);
+                  if not Good then
+                     Fail (M, Error_Heap_Full);
+                     return;
+                  end if;
+                  Acc := New_Args;
+                  Cdr_Of (H, Cur, Rest, Good);
+                  if not Good then
+                     Fail (M, Error_Malformed);
+                     return;
+                  end if;
+                  Cur := Rest;
+               end loop;
+
+               First := Acc;
+               Apply_Procedure (H, F.Func, First, M, B);
+               return;
+            end if;
+
             Cons (H, M.Result, F.Args, New_Args, Good);
             if not Good then
                Fail (M, Error_Heap_Full);

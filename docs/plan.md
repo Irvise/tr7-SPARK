@@ -197,11 +197,13 @@ Concrete order, each step keeping the proof and the suites green.
    `tests/bvindex.scm`, `tests/brange.scm`).
 4. **More primitives** -- `length`, `append`, `reverse`, `list-ref`, `assq`
    and `memq` are in (`tests/lists.scm`); `string?`/`vector?`/`bytevector?`
-   arrived with step 3.  Still to come: `apply`, `map`, `for-each` -- these
-   three *call* Scheme procedures, so they cannot be heap-walking primitives;
-   they are either evaluator forms or a small Scheme prelude evaluated at
-   engine start (the plan's preference, since it also brings `cadr` and
-   friends for free), and ports with the OS boundary in `tr7i`.
+   arrived with step 3; `apply` is in as an evaluator form (`tests/apply.scm`)
+   -- it reuses the operator/argument frames, carrying the "spread the last
+   argument" marker in the frame's unused Sym, and validates the spread with
+   `Length` so a non-list tail is a type error.  Still to come: `map` and
+   `for-each`, which *call* Scheme procedures over a variadic list of lists,
+   so they are evaluator forms rather than primitives; and ports with the OS
+   boundary in `tr7i`.
 5. **Numeric tower step 1** -- the integer half is in: `abs`, `min`, `max`,
    `quotient`, `remainder`, `modulo` and `expt` (`tests/numbers.scm`,
    `tests/numovf.scm`), each overflow or zero-divisor path guarded and named.
