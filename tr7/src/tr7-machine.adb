@@ -252,6 +252,185 @@ is
       M.Mode := Mode_Return;
    end Eval_Symbol;
 
+   --  Enter the first form of a body in Env.  A sequence frame is pushed only
+   --  when further forms follow: the last form is in tail position, so its
+   --  value must reach the parent frame without an extra hop (and without an
+   --  extra frame on the stack).
+   procedure Start_Body
+     (H    : Heap_Type;
+      M    : in out Machine;
+      Forms : Value;
+      Env  : Handle)
+     with Pre => H.Ready
+   is
+      First : Value;
+      Rest  : Value;
+      F     : Frame;
+      Good  : Boolean;
+   begin
+      if Is_Nil (Forms) then
+         M.Result := Unspecified_Value;
+         M.Mode := Mode_Return;
+         return;
+      end if;
+
+      Car_Of (H, Forms, First, Good);
+      if not Good then
+         Fail (M, Error_Malformed);
+         return;
+      end if;
+      Cdr_Of (H, Forms, Rest, Good);
+      if not Good then
+         Fail (M, Error_Malformed);
+         return;
+      end if;
+
+      if not Is_Nil (Rest) then
+         F := (Kind => K_Begin,
+               Expr => Rest,
+               Env  => Env,
+               others => <>);
+         Push (M, F, Good);
+         if not Good then
+            Fail (M, Error_Step_Limit);
+            return;
+         end if;
+      end if;
+
+      M.Ctl := First;
+      M.Env := Env;
+      M.Mode := Mode_Eval;
+   end Start_Body;
+
+   --  Split (<variable> <expression>) into its two parts, rejecting the forms
+   --  R7RS does not allow: no initializer, or extra expressions.
+   procedure Split_Binding
+     (H    : Heap_Type;
+      B    : Value;
+      Var  : out Value;
+      Init : out Value;
+      Ok   : out Boolean)
+     with Pre => H.Ready
+   is
+      Tail : Value;
+      More : Value;
+      Good : Boolean;
+   begin
+      Init := Nil_Value;
+      Ok   := False;
+
+      Car_Of (H, B, Var, Good);
+      if not Good or else not Is_Handle (Var) then
+         return;
+      end if;
+      Cdr_Of (H, B, Tail, Good);
+      if not Good or else Is_Nil (Tail) then
+         return;
+      end if;
+      Car_Of (H, Tail, Init, Good);
+      if not Good then
+         return;
+      end if;
+      Cdr_Of (H, Tail, More, Good);
+      if not Good or else not Is_Nil (More) then
+         return;
+      end if;
+      Ok := True;
+   end Split_Binding;
+
+   --  let, let* and letrec differ only in where the initializers run: all in
+   --  the enclosing environment (parallel bindings), or in the new environment
+   --  as each binding is added.  letrec needs no special case: its initializers
+   --  also run in the new environment, and R7RS requires referencing a binding
+   --  before its initializer has run to be an error -- which is exactly the
+   --  unbound-variable error a missing binding gives here.
+   type Let_Style is (Let_Parallel, Let_Sequential);
+
+   procedure Start_Let
+     (H     : in out Heap_Type;
+      M     : in out Machine;
+      Style : Let_Style)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Bindings : Value;
+      Forms    : Value;
+      New_Env  : Handle;
+      Eval_Env : Handle;
+      First_B  : Value;
+      Rest_B   : Value;
+      Var      : Value;
+      Init     : Value;
+      F        : Frame;
+      Good     : Boolean;
+   begin
+      --  The keyword is the head of M.Ctl: cadr holds the bindings, cddr the
+      --  body.
+      Cadr_Of (H, M.Ctl, Bindings, Good);
+      if not Good then
+         Fail (M, Error_Malformed);
+         return;
+      end if;
+      Cddr_Of (H, M.Ctl, Forms, Good);
+      if not Good then
+         Fail (M, Error_Malformed);
+         return;
+      end if;
+
+      Tr7.Env.New_Environment (H, M.Env, New_Env, Good);
+      if not Good then
+         Fail (M, Error_Heap_Full);
+         return;
+      end if;
+
+      if Is_Nil (Bindings) then
+         Start_Body (H, M, Forms, New_Env);
+         return;
+      end if;
+
+      Car_Of (H, Bindings, First_B, Good);
+      if not Good then
+         Fail (M, Error_Malformed);
+         return;
+      end if;
+      Cdr_Of (H, Bindings, Rest_B, Good);
+      if not Good then
+         Fail (M, Error_Malformed);
+         return;
+      end if;
+      Split_Binding (H, First_B, Var, Init, Good);
+      if not Good then
+         Fail (M, Error_Malformed);
+         return;
+      end if;
+
+      --  Parallel bindings evaluate every initializer where the let form
+      --  appears; sequential ones evaluate it in the environment built so far.
+      if Style = Let_Parallel then
+         Eval_Env := M.Env;
+      else
+         Eval_Env := New_Env;
+      end if;
+
+      F := (Kind => K_Bind,
+            Sym  => Var,
+            Args => Rest_B,
+            Func => From_Handle (New_Env),
+            Expr => Forms,
+            Env  => Eval_Env,
+            others => <>);
+      Push (M, F, Good);
+      if not Good then
+         Fail (M, Error_Step_Limit);
+         return;
+      end if;
+
+      M.Ctl := Init;
+      M.Env := Eval_Env;
+      M.Mode := Mode_Eval;
+   end Start_Let;
+
    procedure Eval_Pair
      (H : in out Heap_Type;
       M : in out Machine)
@@ -435,17 +614,79 @@ is
             Fail (M, Error_Malformed);
             return;
          end if;
-         F := (Kind => K_Begin,
-               Expr => Tail2,
-               Env  => M.Env,
-               others => <>);
-         Push (M, F, Good);
-         if not Good then
-            Fail (M, Error_Step_Limit);
-            return;
+         if not Is_Nil (Tail2) then
+            F := (Kind => K_Begin,
+                  Expr => Tail2,
+                  Env  => M.Env,
+                  others => <>);
+            Push (M, F, Good);
+            if not Good then
+               Fail (M, Error_Step_Limit);
+               return;
+            end if;
          end if;
          M.Ctl := Tmp;
          M.Mode := Mode_Eval;
+         return;
+      end if;
+
+      if Is_Symbol_Named (H, Head, "and")
+        or else Is_Symbol_Named (H, Head, "or")
+      then
+         --  (and) is #t, (or) is #f; otherwise the operands are evaluated
+         --  left to right and the first deciding value is the answer.
+         Cdr_Of (H, M.Ctl, Rest, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         if Is_Nil (Rest) then
+            if Is_Symbol_Named (H, Head, "and") then
+               M.Result := True_Value;
+            else
+               M.Result := False_Value;
+            end if;
+            M.Mode := Mode_Return;
+            return;
+         end if;
+
+         Car_Of (H, Rest, Tmp, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Cdr_Of (H, Rest, Tail2, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+
+         if not Is_Nil (Tail2) then
+            if Is_Symbol_Named (H, Head, "and") then
+               F := (Kind => K_And, Expr => Tail2, Env => M.Env, others => <>);
+            else
+               F := (Kind => K_Or, Expr => Tail2, Env => M.Env, others => <>);
+            end if;
+            Push (M, F, Good);
+            if not Good then
+               Fail (M, Error_Step_Limit);
+               return;
+            end if;
+         end if;
+
+         M.Ctl := Tmp;
+         M.Mode := Mode_Eval;
+         return;
+      end if;
+
+      if Is_Symbol_Named (H, Head, "let") then
+         Start_Let (H, M, Let_Parallel);
+         return;
+      elsif Is_Symbol_Named (H, Head, "let*") then
+         Start_Let (H, M, Let_Sequential);
+         return;
+      elsif Is_Symbol_Named (H, Head, "letrec") then
+         Start_Let (H, M, Let_Sequential);
          return;
       end if;
 
@@ -532,6 +773,8 @@ is
       Proper   : Value;
       First    : Value;
       Rest     : Value;
+      Var      : Value;
+      Init     : Value;
    begin
       if M.Top = 0 then
          M.Mode := Mode_Halt;
@@ -636,6 +879,89 @@ is
                M.Env := F.Env;
                M.Mode := Mode_Eval;
             end if;
+
+         when K_Bind =>
+            --  The initializer has been evaluated: store it, then run the
+            --  next initializer or the body.
+            if not Is_Handle (F.Func) then
+               Fail (M, Error_Malformed);
+               return;
+            end if;
+            Tr7.Env.Define (H, To_Handle (F.Func), F.Sym, M.Result, Good);
+            if not Good then
+               Fail (M, Error_Heap_Full);
+               return;
+            end if;
+
+            if Is_Nil (F.Args) then
+               Start_Body (H, M, F.Expr, To_Handle (F.Func));
+               return;
+            end if;
+
+            Car_Of (H, F.Args, First, Good);
+            if not Good then
+               Fail (M, Error_Malformed);
+               return;
+            end if;
+            Cdr_Of (H, F.Args, Rest, Good);
+            if not Good then
+               Fail (M, Error_Malformed);
+               return;
+            end if;
+            Split_Binding (H, First, Var, Init, Good);
+            if not Good then
+               Fail (M, Error_Malformed);
+               return;
+            end if;
+
+            F.Sym := Var;
+            F.Args := Rest;
+            Push (M, F, Good);
+            if not Good then
+               Fail (M, Error_Step_Limit);
+               return;
+            end if;
+            M.Ctl := Init;
+            M.Env := F.Env;
+            M.Mode := Mode_Eval;
+
+         when K_And | K_Or =>
+            --  A false operand decides `and`, a true one decides `or`; in
+            --  both cases the value that decided is the value of the form.
+            if (F.Kind = K_And and then not Is_True (M.Result))
+              or else (F.Kind = K_Or and then Is_True (M.Result))
+            then
+               M.Mode := Mode_Return;
+               return;
+            end if;
+
+            if Is_Nil (F.Expr) then
+               M.Mode := Mode_Return;
+               return;
+            end if;
+
+            Car_Of (H, F.Expr, First, Good);
+            if not Good then
+               Fail (M, Error_Malformed);
+               return;
+            end if;
+            Cdr_Of (H, F.Expr, Rest, Good);
+            if not Good then
+               Fail (M, Error_Malformed);
+               return;
+            end if;
+
+            F.Expr := Rest;
+            if not Is_Nil (Rest) then
+               Push (M, F, Good);
+               if not Good then
+                  Fail (M, Error_Step_Limit);
+                  return;
+               end if;
+            end if;
+            M.Ctl := First;
+            M.Env := F.Env;
+            M.Mode := Mode_Eval;
 
          when K_Argument =>
             Cons (H, M.Result, F.Args, New_Args, Good);

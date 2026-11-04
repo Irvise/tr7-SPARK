@@ -39,9 +39,10 @@ The proof always runs with `TR7_CHECKS=on` (the script exports it): `-gnatp`
 would make GNATprove drop the corresponding obligations instead of proving
 them, and a green run without them would be meaningless.
 
-Results: M0 closed at 935 checks.  M1 (mark-sweep collector, true tail calls)
-closes at **990 checks, 0 unproved, 0 justified, 0 warnings** -- flow and
-initialization fully proved, non-aliasing proved, build warning-free.
+Results: M0 closed at 935 checks.  M1's collector and tail-call work closed at
+990; adding `let`, `let*`, `letrec`, `and` and `or` brings the tree to
+**1,049 checks, 0 unproved, 0 justified** -- flow and initialization fully
+proved, non-aliasing proved, build warning-free.
 
 ## Iteration policy
 

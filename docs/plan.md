@@ -170,9 +170,11 @@ Concrete order, each step keeping the proof and the suites green.
    calls were leaking a pass-through frame per call, and `-gnata` was evaluating
    quantified loop invariants at run time (8.4 ms per collection instead of
    5 us).  Both are fixed; see `docs/findings.md`.
-2. **Derived binding forms** -- `let`, `let*`, `letrec`, `cond`, `case`, `and`,
-   `or`, `when`, `unless`, `do`, desugared in the evaluator or expanded by the
-   reader, whichever keeps `tr7-machine.adb` small enough to prove.
+2. **Derived binding forms** -- `let`, `let*`, `letrec`, `and`, `or` are in
+   (`tests/forms.scm`: parallel binding swaps, sequential rebinding, mutual
+   `letrec` recursion, short-circuit side effects).  `cond` (with `=>`),
+   `case`, `when`, `unless`, `do` and `quasiquote` are next, all as frame kinds
+   in the evaluator -- the reader stays syntax-only.
 3. **Strings and vectors** -- `string-length`, `string-ref`, `string-append`,
    `substring`, `string=?`, vectors and bytevectors as chunked cells with
    bounded accessors; the reader gains `#\x` hex escapes and `#(...)`.

@@ -21,9 +21,12 @@ collects on a fixed cadence; the `gc` suite runs both ways and asserts that
 garbage was actually reclaimed.  `free-cells` is a small extension primitive
 used by that suite.
 
-Not yet present: `let` and its relatives, strings beyond literals, vectors,
-full numeric tower, `call/cc`, ports beyond strings, the C ABI body, and
-`syntax-rules`.
+Supported special forms: `quote`, `if`, `lambda`, `define`, `set!`, `begin`,
+`let`, `let*`, `letrec`, `and`, `or` (see `tests/forms.scm`).
+
+Not yet present: `cond`/`case`/`when`/`unless`/`do`, strings beyond literals,
+vectors, full numeric tower, `call/cc`, ports beyond strings, the C ABI body,
+and `syntax-rules`.
 
 ## Build
 

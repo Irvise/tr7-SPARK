@@ -21,7 +21,13 @@ is
       K_Define,
       K_Set,
       K_Operator,
-      K_Argument);
+      K_Argument,
+      --  let / let* / letrec: bind the value that was just evaluated, then
+      --  start the next initializer or the body.
+      K_Bind,
+      --  and / or: stop as soon as the value decides the answer.
+      K_And,
+      K_Or);
 
    type Frame is record
       Kind : Frame_Kind := K_If;

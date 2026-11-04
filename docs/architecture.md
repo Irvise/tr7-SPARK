@@ -35,8 +35,16 @@ replaces the current control and environment without pushing a frame, so tail
 calls run in constant stack space.  Applications evaluate the operator first,
 then arguments left to right, accumulating a reversed argument list.
 
-Supported forms in M0: `quote`, `if`, `lambda`, `define`, `set!`, `begin`, and
-procedure application.
+Supported forms: `quote`, `if`, `lambda`, `define`, `set!`, `begin`,
+`let`, `let*`, `letrec`, `and`, `or`, and procedure application.  `let` and its
+relatives are driven by one frame kind (`K_Bind`) that stores the binding just
+produced and the environment the remaining initializers run in: parallel `let`
+evaluates them in the enclosing environment, `let*`/`letrec` in the new one.
+`and`/`or` use `K_And`/`K_Or` and return the value that decided them.
+
+Every sequence-like form (`begin`, a lambda body, `let` bodies, the operands of
+`and`/`or`) is in tail position when only one form remains, so no frame is
+pushed for it -- the last value goes straight to the parent frame.
 
 ## Environments
 
