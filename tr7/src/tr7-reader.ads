@@ -4,7 +4,6 @@
 --  allocates anything except heap data, and it reports a precise status so the
 --  REPL can distinguish "end of input" from a syntax error.
 
-with Tr7.Config;
 with Tr7.Heap; use Tr7.Heap;
 with Tr7.Values; use Tr7.Values;
 
@@ -13,18 +12,6 @@ package Tr7.Reader with
 is
 
    type Read_Status is (Read_Ok, Read_End, Read_Error);
-
-   procedure Intern
-     (H      : in out Heap_Type;
-      Name   : String;
-      Result : out Value;
-      Ok     : out Boolean)
-     with
-       Pre  => H.Ready
-         and then Name'First >= 1
-         and then Name'Last < Natural'Last
-         and then Name'Length <= Tr7.Config.Max_Text,
-       Post => H.Ready and then (if Ok then Is_Handle (Result));
 
    procedure Read_Datum
      (H      : in out Heap_Type;

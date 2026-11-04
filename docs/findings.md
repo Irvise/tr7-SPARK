@@ -126,6 +126,21 @@ Consequences:
   so a cursor walk inside a function needs a `Loop_Variant` -- a bounded
   counter with `Decreases => Bound - Steps` is the shape that proved here --
   while the identical walk in a procedure needs neither.
+- For mutually recursive procedures, `Subprogram_Variant => (Decreases => Fuel)`
+  on both forward declarations proves the cycle terminates.  A `Fuel` parameter
+  works without dragging the callee's precondition along when the fuel check is
+  an entry guard (`if Fuel = 0 then ... return`) rather than a precondition:
+  the guard establishes `Fuel >= 1`, which makes `Fuel - 1` range-safe and
+  strictly decreasing at every call site, while the callee's precondition stays
+  free of fuel entirely (a precondition `Fuel > 0` would not be re-established
+  by `Fuel - 1` -- the off-by-one traps that shape every time).
+- Flow demands an `out` parameter be initialized on *every* return path, early
+  returns included -- `Build_Call2` failed its first proof on exactly that
+  once it started being called.  The mirror-image complaint is "unused
+  assignment" when every path overwrites the initial value before any read
+  (`Data_Code`'s `Ok := False`, `QQ_Spine`'s `Status := No_Error`, both dead
+  because a callee's `out` always wrote first).  Both were fixed by moving or
+  deleting the assignment, never by annotating anything.
 - Loop invariants that the construct already implies -- `for I in 0 .. N`
   giving `I <= N`, `while Mag > 0` giving `Mag >= 0`, a counter nothing
   decrements -- draw `condition is always True` warnings: delete them.

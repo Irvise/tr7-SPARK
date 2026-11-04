@@ -67,34 +67,6 @@ is
       end loop;
    end Skip_Atmosphere;
 
-   procedure Intern
-     (H      : in out Heap_Type;
-      Name   : String;
-      Result : out Value;
-      Ok     : out Boolean)
-   is
-      Hd : Handle;
-   begin
-      Result := Nil_Value;
-      Ok := False;
-      for I in Valid_Cell_Index loop
-         pragma Loop_Invariant (Ok = False);
-         if H.Cells (I).Kind = Cell_Symbol
-           and then H.Cells (I).Name_Len = Name'Length
-           and then H.Cells (I).Name (1 .. H.Cells (I).Name_Len) = Name
-         then
-            Result := From_Handle ((Index => I, Generation => H.Cells (I).Generation));
-            Ok := True;
-            return;
-         end if;
-      end loop;
-
-      New_Symbol (H, Name, Hd, Ok);
-      if Ok then
-         Result := From_Handle (Hd);
-      end if;
-   end Intern;
-
    procedure Parse_Integer
      (Text        : String;
       Is_Integer  : out Boolean;
@@ -409,27 +381,54 @@ is
          return;
       end if;
 
-      if C = ''' then
+      if C = ''' or else C = '`' or else C = ',' then
+         --  The three reader shorthands, all built the same way: name the
+         --  keyword, read one datum, and make (keyword datum).  ' ,x and ,@x
+         --  differ only in how much source they consume and which keyword
+         --  they intern; the reader always produces *data*, so quoting a
+         --  backtick form still yields (quasiquote ...) as data.
          if Depth <= 1 then
             return;
          end if;
-         Pos := Pos + 1;
-         Read_Internal (H, S, Pos, Depth - 1, Quoted, St);
-         if St /= Read_Ok then
-            return;
-         end if;
-         Intern (H, "quote", Quote_Sym, Ok);
-         if not Ok then
-            return;
-         end if;
-         Cons (H, Quoted, Nil_Value, Tail, Ok);
-         if not Ok then
-            return;
-         end if;
-         Cons (H, Quote_Sym, Tail, Result, Ok);
-         if Ok then
-            Status := Read_Ok;
-         end if;
+         declare
+            Sym     : String (1 .. 16) := (others => ' ');
+            Sym_Len : Natural;
+         begin
+            if C = ''' then
+               Sym (1 .. 5) := "quote";
+               Sym_Len := 5;
+               Pos := Pos + 1;
+            elsif C = '`' then
+               Sym (1 .. 10) := "quasiquote";
+               Sym_Len := 10;
+               Pos := Pos + 1;
+            elsif Pos + 2 <= S'Length and then S (Pos + 2) = '@' then
+               Sym (1 .. 16) := "unquote-splicing";
+               Sym_Len := 16;
+               Pos := Pos + 2;
+            else
+               Sym (1 .. 7) := "unquote";
+               Sym_Len := 7;
+               Pos := Pos + 1;
+            end if;
+
+            Read_Internal (H, S, Pos, Depth - 1, Quoted, St);
+            if St /= Read_Ok then
+               return;
+            end if;
+            Intern (H, Sym (1 .. Sym_Len), Quote_Sym, Ok);
+            if not Ok then
+               return;
+            end if;
+            Cons (H, Quoted, Nil_Value, Tail, Ok);
+            if not Ok then
+               return;
+            end if;
+            Cons (H, Quote_Sym, Tail, Result, Ok);
+            if Ok then
+               Status := Read_Ok;
+            end if;
+         end;
          return;
       end if;
 

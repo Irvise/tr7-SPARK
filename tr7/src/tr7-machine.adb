@@ -371,6 +371,444 @@ is
    end Param_Fixed_Length;
 
 
+   --  quasiquote support.  The template is turned into code -- cons for
+   --  structure, quote for data, the unquoted expression itself where a value
+   --  is wanted, append for splicing -- and the evaluator runs that code, so
+   --  no new frame kind is needed and quoting a backtick form still behaves
+   --  like data.
+
+   --  Budget and nesting bound for the converter below.  Both sit far above
+   --  what a reader-produced template can reach -- its depth is capped at
+   --  Max_Reader_Depth -- so exhausting either is unreachable for any datum
+   --  the reader made; the guards turn that impossible case into a clean
+   --  error instead of a stack overflow or a range check.
+   QQ_Limit : constant := 4 * Max_Reader_Depth;
+   QQ_Fuel  : constant := 4 * Max_Reader_Depth + 64;
+
+   function Is_Form
+     (H    : Heap_Type;
+      V    : Value;
+      Name : String) return Boolean
+     with Pre => H.Ready and then Name'First >= 1
+   is
+      C    : Cell;
+      Good : Boolean;
+   begin
+      if not Is_Handle (V) then
+         return False;
+      end if;
+      Fetch (H, To_Handle (V), C, Good);
+      if not Good or else C.Kind /= Cell_Pair then
+         return False;
+      end if;
+      return Is_Symbol_Named (H, C.Car, Name);
+   end Is_Form;
+
+   function Is_Pair_Value (H : Heap_Type; V : Value) return Boolean
+     with Pre => H.Ready
+   is
+      C    : Cell;
+      Good : Boolean;
+   begin
+      if not Is_Handle (V) then
+         return False;
+      end if;
+      Fetch (H, To_Handle (V), C, Good);
+      return Good and then C.Kind = Cell_Pair;
+   end Is_Pair_Value;
+
+   --  True when V is itself one of the three keywords the converter reacts
+   --  to -- not when V is a form headed by one, which is Is_Form's job.
+   function Is_Keyword (H : Heap_Type; V : Value) return Boolean
+     with Pre => H.Ready
+   is
+      C    : Cell;
+      Good : Boolean;
+   begin
+      if not Is_Handle (V) then
+         return False;
+      end if;
+      Fetch (H, To_Handle (V), C, Good);
+      if not Good or else C.Kind /= Cell_Symbol then
+         return False;
+      end if;
+      return (C.Name_Len = 7 and then C.Name (1 .. 7) = "unquote")
+        or else
+          (C.Name_Len = 16 and then C.Name (1 .. 16) = "unquote-splicing")
+        or else
+          (C.Name_Len = 10 and then C.Name (1 .. 10) = "quasiquote");
+   end Is_Keyword;
+
+   --  What evaluating this value should produce: symbols and heap values need
+   --  (quote v), the immediate kinds are their own code.
+   procedure Data_Code
+     (H    : in out Heap_Type;
+      V    : Value;
+      Code : out Value;
+      Ok   : out Boolean)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Quote_Sym : Value;
+      Tmp       : Value;
+   begin
+      Code := Nil_Value;
+      if V.Kind /= Kind_Handle then
+         --  Immediate values are their own code: numbers, characters,
+         --  booleans and ().
+         Code := V;
+         Ok := True;
+         return;
+      end if;
+
+      --  Heap values -- symbols, strings -- are wrapped as (quote v), which
+      --  evaluation reproduces unchanged.
+      Intern (H, "quote", Quote_Sym, Ok);
+      if not Ok then
+         return;
+      end if;
+      Cons (H, V, Nil_Value, Tmp, Ok);      -- (v . ())
+      if not Ok then
+         return;
+      end if;
+      Cons (H, Quote_Sym, Tmp, Code, Ok);   -- (quote v . ())
+   end Data_Code;
+
+   --  (fn a1 a2) as a value.
+   procedure Build_Call2
+     (H    : in out Heap_Type;
+      Fn   : Value;
+      A1   : Value;
+      A2   : Value;
+      Res  : out Value;
+      Ok   : out Boolean)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      T1, T2 : Value;
+   begin
+      Res := Nil_Value;
+      Cons (H, A2, Nil_Value, T2, Ok);
+      if not Ok then
+         return;
+      end if;
+      Cons (H, A1, T2, T1, Ok);
+      if not Ok then
+         return;
+      end if;
+      Cons (H, Fn, T1, Res, Ok);
+   end Build_Call2;
+
+   --  The single argument of a keyword form: (name arg) and nothing more, so
+   --  (unquote) and (unquote a b) inside a template are both rejected rather
+   --  than silently missing or ignoring an operand.
+   procedure Form_Arg
+     (H    : Heap_Type;
+      T    : Value;
+      Arg  : out Value;
+      Good : out Boolean)
+     with Pre => H.Ready
+   is
+      C    : Cell;
+      Rest : Cell;
+      C_Ok : Boolean;
+      R_Ok : Boolean;
+   begin
+      Arg := Nil_Value;
+      Good := False;
+      if not Is_Handle (T) then
+         return;
+      end if;
+      Fetch (H, To_Handle (T), C, C_Ok);
+      if not C_Ok or else C.Kind /= Cell_Pair then
+         return;
+      end if;
+      if not Is_Handle (C.Cdr) then
+         return;
+      end if;
+      Fetch (H, To_Handle (C.Cdr), Rest, R_Ok);
+      if not R_Ok or else Rest.Kind /= Cell_Pair then
+         return;
+      end if;
+      if not Is_Nil (Rest.Cdr) then
+         return;
+      end if;
+      Arg := Rest.Car;
+      Good := True;
+   end Form_Arg;
+
+   --  The converter and the spine walk call each other, so both are declared
+   --  before either body.  Every call spends one unit of Fuel, which bounds
+   --  recursion by construction; Nesting counts the active quasiquotes and
+   --  never leaves 1 .. QQ_Limit (the reader cannot nest a template deeply
+   --  enough to reach the bound, so the guard there is a safety net).
+   procedure QQ_To_Code
+     (H       : in out Heap_Type;
+      T       : Value;
+      Nesting : Natural;
+      Code    : out Value;
+      Status  : out Error_Code;
+      Fuel    : Natural)
+     with
+       Pre  => H.Ready
+         and then Nesting >= 1
+         and then Nesting <= QQ_Limit,
+       Post => H.Ready,
+       Subprogram_Variant => (Decreases => Fuel);
+
+   procedure QQ_Spine
+     (H       : in out Heap_Type;
+      T       : Value;
+      Nesting : Natural;
+      Code    : out Value;
+      Status  : out Error_Code;
+      Fuel    : Natural)
+     with
+       Pre  => H.Ready
+         and then Nesting >= 1
+         and then Nesting <= QQ_Limit,
+       Post => H.Ready,
+       Subprogram_Variant => (Decreases => Fuel);
+
+   procedure QQ_To_Code
+     (H       : in out Heap_Type;
+      T       : Value;
+      Nesting : Natural;
+      Code    : out Value;
+      Status  : out Error_Code;
+      Fuel    : Natural)
+   is
+      Pair_C     : Cell;
+      Good       : Boolean;
+      Inner      : Value;
+      Inner_Code : Value;
+      Kw_Code    : Value;
+      List_Sym   : Value;
+   begin
+      Code := Nil_Value;
+      Status := No_Error;
+      if Fuel = 0 then
+         Status := Error_Malformed;
+         return;
+      end if;
+
+      if not Is_Handle (T) then
+         --  Numbers, characters, booleans and () are their own code.
+         Data_Code (H, T, Code, Good);
+         if not Good then
+            Status := Error_Heap_Full;
+         end if;
+         return;
+      end if;
+
+      if not Is_Pair_Value (H, T) then
+         --  A symbol or a string: quote it so evaluation reproduces it.
+         Data_Code (H, T, Code, Good);
+         if not Good then
+            Status := Error_Heap_Full;
+         end if;
+         return;
+      end if;
+
+      Fetch (H, To_Handle (T), Pair_C, Good);
+      if not Good then
+         Status := Error_Malformed;
+         return;
+      end if;
+
+      if Is_Symbol_Named (H, Pair_C.Car, "unquote")
+        or else Is_Symbol_Named (H, Pair_C.Car, "unquote-splicing")
+      then
+         Form_Arg (H, T, Inner, Good);
+         if not Good then
+            Status := Error_Malformed;
+            return;
+         end if;
+         if Nesting = 1 then
+            --  The expression itself.  In list position a splice is caught
+            --  by QQ_Spine first, so what reaches here is `,x or a dotted
+            --  tail -- both simply evaluate.
+            Code := Inner;
+            return;
+         end if;
+
+         --  Deeper nesting: the form survives as data -- the list
+         --  (keyword <inner>) -- and the keyword symbol is taken from the
+         --  template itself, so nothing has to be interned for it.
+         QQ_To_Code (H, Inner, Nesting - 1, Inner_Code, Status, Fuel - 1);
+         if Status /= No_Error then
+            return;
+         end if;
+         Data_Code (H, Pair_C.Car, Kw_Code, Good);
+         if not Good then
+            Status := Error_Heap_Full;
+            return;
+         end if;
+         Intern (H, "list", List_Sym, Good);
+         if not Good then
+            Status := Error_Heap_Full;
+            return;
+         end if;
+         Build_Call2 (H, List_Sym, Kw_Code, Inner_Code, Code, Good);
+         if not Good then
+            Status := Error_Heap_Full;
+         end if;
+         return;
+      end if;
+
+      if Is_Symbol_Named (H, Pair_C.Car, "quasiquote") then
+         Form_Arg (H, T, Inner, Good);
+         if not Good then
+            Status := Error_Malformed;
+            return;
+         end if;
+         if Nesting >= QQ_Limit then
+            Status := Error_Malformed;
+            return;
+         end if;
+         QQ_To_Code (H, Inner, Nesting + 1, Inner_Code, Status, Fuel - 1);
+         if Status /= No_Error then
+            return;
+         end if;
+         Data_Code (H, Pair_C.Car, Kw_Code, Good);
+         if not Good then
+            Status := Error_Heap_Full;
+            return;
+         end if;
+         Intern (H, "list", List_Sym, Good);
+         if not Good then
+            Status := Error_Heap_Full;
+            return;
+         end if;
+         Build_Call2 (H, List_Sym, Kw_Code, Inner_Code, Code, Good);
+         if not Good then
+            Status := Error_Heap_Full;
+         end if;
+         return;
+      end if;
+
+      --  Structure: cons cells, splices and a dotted tail.
+      QQ_Spine (H, T, Nesting, Code, Status, Fuel - 1);
+   end QQ_To_Code;
+
+   procedure QQ_Spine
+     (H       : in out Heap_Type;
+      T       : Value;
+      Nesting : Natural;
+      Code    : out Value;
+      Status  : out Error_Code;
+      Fuel    : Natural)
+   is
+      Rev        : Value := Nil_Value;
+      Acc        : Value;
+      Cur        : Value := T;
+      Elem       : Value;
+      Elem_Code  : Value;
+      New_Rev    : Value;
+      Splice     : Value;
+      Cons_Sym   : Value;
+      Append_Sym : Value;
+      Node       : Cell;
+      Good       : Boolean;
+   begin
+      Code := Nil_Value;
+      if Fuel = 0 then
+         Status := Error_Malformed;
+         return;
+      end if;
+      Intern (H, "cons", Cons_Sym, Good);
+      if not Good then
+         Status := Error_Heap_Full;
+         return;
+      end if;
+
+      --  Walk the spine, collecting the elements in reverse.  The walk stops
+      --  at the tail: nil, a dotted datum, or a keyword form -- `(a . ,x)
+      --  reads its tail as the list (unquote x), which is an expression to
+      --  convert, not a cell to walk (and the same list written out longhand
+      --  means the same thing, because it is the same datum).
+      loop
+         pragma Loop_Invariant (H.Ready);
+         exit when not Is_Handle (Cur);
+         Fetch (H, To_Handle (Cur), Node, Good);
+         if not Good then
+            Status := Error_Malformed;
+            return;
+         end if;
+         if Node.Kind /= Cell_Pair then
+            exit;
+         end if;
+         if Is_Keyword (H, Node.Car) then
+            exit;
+         end if;
+         Cons (H, Node.Car, Rev, New_Rev, Good);
+         if not Good then
+            Status := Error_Heap_Full;
+            return;
+         end if;
+         Rev := New_Rev;
+         Cur := Node.Cdr;
+      end loop;
+
+      --  The tail's own code: () stays (), and a dotted datum or a keyword
+      --  form is converted as one expression.
+      QQ_To_Code (H, Cur, Nesting, Acc, Status, Fuel - 1);
+      if Status /= No_Error then
+         return;
+      end if;
+
+      --  Fold left over the reversed spine -- a right fold over the original
+      --  -- so the conses come out in list order and an ,@ element appends
+      --  exactly the code built for what follows it.
+      while not Is_Nil (Rev) loop
+         pragma Loop_Invariant (H.Ready);
+         Car_Of (H, Rev, Elem, Good);
+         if not Good then
+            Status := Error_Malformed;
+            return;
+         end if;
+         Cdr_Of (H, Rev, New_Rev, Good);
+         if not Good then
+            Status := Error_Malformed;
+            return;
+         end if;
+
+         if Nesting = 1 and then Is_Form (H, Elem, "unquote-splicing") then
+            Form_Arg (H, Elem, Splice, Good);
+            if not Good then
+               Status := Error_Malformed;
+               return;
+            end if;
+            Intern (H, "append", Append_Sym, Good);
+            if not Good then
+               Status := Error_Heap_Full;
+               return;
+            end if;
+            Build_Call2 (H, Append_Sym, Splice, Acc, Code, Good);
+            if not Good then
+               Status := Error_Heap_Full;
+               return;
+            end if;
+         else
+            QQ_To_Code (H, Elem, Nesting, Elem_Code, Status, Fuel - 1);
+            if Status /= No_Error then
+               return;
+            end if;
+            Build_Call2 (H, Cons_Sym, Elem_Code, Acc, Code, Good);
+            if not Good then
+               Status := Error_Heap_Full;
+               return;
+            end if;
+         end if;
+         Acc := Code;
+         Rev := New_Rev;
+      end loop;
+
+      Code := Acc;
+   end QQ_Spine;
+
    --  Enter the first form of a body in Env.  A sequence frame is pushed only
    --  when further forms follow: the last form is in tail position, so its
    --  value must reach the parent frame without an extra hop (and without an
@@ -885,6 +1323,9 @@ is
       Name   : Value;
       Expr_V : Value;
       Tmp    : Value;
+      Tmpl      : Value;
+      QQ_Code   : Value;
+      QQ_Status : Error_Code;
    begin
       Car_Of (H, M.Ctl, Head, Good);
       if not Good then
@@ -899,6 +1340,33 @@ is
          else
             M.Mode := Mode_Return;
          end if;
+         return;
+      end if;
+
+      if Is_Symbol_Named (H, Head, "quasiquote") then
+         Cadr_Of (H, M.Ctl, Tmpl, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Cddr_Of (H, M.Ctl, Rest, Good);
+         if not Good or else not Is_Nil (Rest) then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+
+         --  The template becomes code and that code is evaluated in place,
+         --  so quasiquote is a tail position and needs no frame of its own.
+         --  The conversion cannot collect: the evaluator only collects
+         --  between steps, and this whole conversion is one step, so the
+         --  values held in locals here are safe without being roots.
+         QQ_To_Code (H, Tmpl, 1, QQ_Code, QQ_Status, QQ_Fuel);
+         if QQ_Status /= No_Error then
+            Fail (M, QQ_Status);
+            return;
+         end if;
+         M.Ctl := QQ_Code;
+         M.Mode := Mode_Eval;
          return;
       end if;
 

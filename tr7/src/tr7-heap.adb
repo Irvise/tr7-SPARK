@@ -139,6 +139,34 @@ is
       end if;
    end New_Pair;
 
+   procedure Intern
+     (H      : in out Heap_Type;
+      Name   : String;
+      Result : out Value;
+      Ok     : out Boolean)
+   is
+      Hd : Handle;
+   begin
+      Result := Nil_Value;
+      Ok := False;
+      for I in Valid_Cell_Index loop
+         pragma Loop_Invariant (Ok = False);
+         if H.Cells (I).Kind = Cell_Symbol
+           and then H.Cells (I).Name_Len = Name'Length
+           and then H.Cells (I).Name (1 .. H.Cells (I).Name_Len) = Name
+         then
+            Result := From_Handle ((Index => I, Generation => H.Cells (I).Generation));
+            Ok := True;
+            return;
+         end if;
+      end loop;
+
+      New_Symbol (H, Name, Hd, Ok);
+      if Ok then
+         Result := From_Handle (Hd);
+      end if;
+   end Intern;
+
    procedure New_Symbol
      (H      : in out Heap_Type;
       Name   : String;

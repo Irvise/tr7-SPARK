@@ -182,8 +182,10 @@ Concrete order, each step keeping the proof and the suites green.
    (`tests/forms.scm`: parallel binding swaps, sequential rebinding, mutual
    `letrec` recursion, short-circuit side effects), so are `cond` (with `=>`
    and `else`, `tests/cond.scm`), `when`, `unless`, and `case`
-   (`tests/case.scm`, sharing `Same_Value` with `eq?`).  Still to come: `do`
-   and `quasiquote` -- all as frame kinds in the evaluator; the reader stays
+   (`tests/case.scm`, sharing `Same_Value` with `eq?`), and so is `quasiquote`
+   -- as a converter to `cons`/`append`/`quote` code rather than a frame kind
+   (`tests/qq.scm`, `tests/bad-qq.scm`, design in `docs/architecture.md`).
+   Still to come: `do` -- one frame kind in the evaluator; the reader stays
    syntax-only.
 3. **Strings and vectors** -- strings are in (`string?`, `string-length`,
    `string-ref`, `substring`, `string-append`, `string=?`, the reader's

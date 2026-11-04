@@ -1,0 +1,15 @@
+(1 2 3)
+(a 3 c)
+(x 1 2 y)
+(a . 3)
+((1 2) 3)
+()
+(a b)
+(quote 3)
+(quasiquote (a (unquote (+ 1 2))))
+(1 2 3)
+(1 2 3)
+(1 2 3 4)
+6
+(quasiquote (quasiquote (quasiquote (quasiquote (quasiquote (quasiquote (quasiquote (quasiquote (quasiquote (quasiquote (quasiquote (quasiquote (quasiquote (quasiquote (quasiquote (quasiquote (quasiquote (quasiquote (quasiquote (quasiquote (quasiquote (quasiquote (quasiquote (quasiquote (quasiquote (quasiquote (quasiquote (quasiquote (quasiquote (quasiquote (quasiquote (quasiquote (quasiquote (quasiquote (quasiquote (quasiquote (quasiquote (quasiquote (quasiquote x)))))))))))))))))))))))))))))))))))))))
+error: malformed expression

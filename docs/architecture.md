@@ -69,10 +69,48 @@ receives an `out` parameter it would have to ignore.
 ## Reader and writer
 
 - Reader: bounded recursive descent over a string.  Supports lists, dotted
-  pairs, quote, booleans, characters, strings with escapes, fixnums and symbols.
-  Symbols are interned by scanning existing symbol cells.
+  pairs, the `'` `` ` `` `,` `,@` shorthands (all built the same way: intern a
+  keyword, read one datum, make `(keyword datum)`), booleans, characters,
+  strings with escapes, fixnums and symbols.  Symbols are interned by scanning
+  existing symbol cells -- `Intern` lives in `Tr7.Heap`, because that is where
+  symbols live and the reader, the engine and the quasiquote converter all
+  need it.
 - Writer: bounded recursive printer with a depth limit, proper-list notation and
   dotted tails.
+
+## Quasiquote
+
+`(quasiquote t)` converts the template into *code* at evaluation time and the
+evaluator runs that code: `cons` for structure, `(quote v)` for data, the
+unquoted expression itself where a value is wanted, `append` for `,@`, and
+`(list 'quasiquote ...)` to rebuild a nested quasiquote as data.  No new frame
+kind is needed -- the conversion is one synchronous step, then the generated
+code is evaluated in place, so quasiquote is a tail position -- and quoting a
+backtick form still behaves like data, because the reader always emits
+`(quasiquote ...)` as a datum.
+
+Two mechanics are worth the detail:
+
+- **Nesting.** `Nesting` counts active quasiquotes: an `unquote` at nesting 1
+  is an expression, deeper ones are data (`(list 'unquote ...)`), and a
+  `(quasiquote ...)` in a template raises the count for its interior.  The
+  bound `QQ_Limit` and the `Fuel` budget per call are both far above what a
+  reader-produced template can reach (its depth is capped at
+  `Max_Reader_Depth`), so the guards that enforce them are safety nets: they
+  turn the impossible case into a clean error instead of a stack overflow.
+- **The spine walk is a left fold over the reversed list**, which is a right
+  fold over the original: elements are collected into a reversed list
+  iteratively, the tail is converted once, and then each element conses its
+  code in front of what follows -- which is also exactly what makes an `,@`
+  element `append` the code built for the rest.  Recursion therefore only ever
+  descends into sub-templates (bounded by reader depth), never along a list.
+
+One consequence follows from the data model rather than from choice: the tail
+of `` `(a . ,x) `` reads as the list `(unquote x)`, which is *the same datum*
+as `(a unquote x)` -- lists are their elements -- so a structural converter
+necessarily treats them alike.  `(unquote)` with no argument is rejected as
+malformed, which is what R7RS says about an unquote that is not exactly one
+operand (`tests/qq.scm`, `tests/bad-qq.scm`).
 
 ## Boundary
 

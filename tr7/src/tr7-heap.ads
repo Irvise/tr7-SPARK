@@ -108,6 +108,21 @@ is
        Pre  => H.Ready,
        Post => H.Ready;
 
+   --  Find the symbol with this name, creating it if needed.  This belongs to
+   --  the heap because that is where symbols live -- the reader, the engine
+   --  and the quasiquote converter all need it.
+   procedure Intern
+     (H      : in out Heap_Type;
+      Name   : String;
+      Result : out Value;
+      Ok     : out Boolean)
+     with
+       Pre  => H.Ready
+         and then Name'First >= 1
+         and then Name'Last < Natural'Last
+         and then Name'Length <= Max_Text,
+       Post => H.Ready and then (if Ok then Is_Handle (Result));
+
    procedure New_Symbol
      (H      : in out Heap_Type;
       Name   : String;

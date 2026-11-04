@@ -47,7 +47,10 @@ Lambdas take rest arguments (`(lambda (a . rest))`) and `define` accepts the
 `apply`, `map` and `for-each` are evaluator forms (`tests/apply.scm`,
 `tests/map.scm`).
 
-Not yet present: `do`, `quasiquote`, flonums, `call/cc`, ports beyond strings,
+`quasiquote` with `unquote` and `unquote-splicing` converts its template to
+`cons`/`append`/`quote` code and evaluates that (`tests/qq.scm`).
+
+Not yet present: `do`, flonums, `call/cc`, ports beyond strings,
 the C ABI body, and `syntax-rules`.
 
 ## Build
