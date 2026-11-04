@@ -191,6 +191,21 @@ is
       end if;
    end New_String;
 
+   procedure New_Vector
+     (H        : in out Heap_Type;
+      Elements : Value;
+      Arity    : Natural;
+      Result   : out Handle;
+      Ok       : out Boolean)
+   is
+   begin
+      Allocate (H, Cell_Vector, Result, Ok);
+      if Ok then
+         H.Cells (Result.Index).Car := Elements;
+         H.Cells (Result.Index).Arity := Arity;
+      end if;
+   end New_Vector;
+
    procedure New_Closure
      (H      : in out Heap_Type;
       Params : Value;
@@ -338,23 +353,16 @@ is
          H.Mark_Top := H.Mark_Top - 1;
          C := H.Cells (Idx);
 
-         case C.Kind is
-            when Cell_Pair =>
-               Mark_Root (H, C.Car);
-               Mark_Root (H, C.Cdr);
-
-            when Cell_Closure =>
-               Mark_Root (H, C.Car);
-               Mark_Root (H, C.Cdr);
-               Mark_Root (H, From_Handle (C.Env));
-
-            when Cell_Environment =>
-               Mark_Root (H, C.Car);
-               Mark_Root (H, From_Handle (C.Env));
-
-            when others =>
-               null;
-         end case;
+         --  Every kind that can hold values holds them in Car/Cdr, and they
+         --  default to nil for the kinds that do not -- allocation resets
+         --  them -- so marking both unconditionally means no future cell kind
+         --  can be silently unrooted.  Only closures and environments carry a
+         --  separate environment handle.
+         Mark_Root (H, C.Car);
+         Mark_Root (H, C.Cdr);
+         if C.Kind = Cell_Closure or else C.Kind = Cell_Environment then
+            Mark_Root (H, From_Handle (C.Env));
+         end if;
       end loop;
 
       if H.Mark_Failed or else H.Mark_Top /= 0 then

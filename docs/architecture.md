@@ -92,6 +92,21 @@ The reader accepts `#\x41` as a hexadecimal scalar value (a lone `#\x` stays
 the character `x`), and the writer prints characters beyond the byte range as
 `#\x1234`, so a wide character survives a write/read round trip.
 
+## Vectors
+
+A vector is one cell: `Arity` holds the length and `Car` a proper list of the
+elements, so `vector-ref`/`vector-set!` walk to index *i* (O(i), bounded by the
+length) while `vector-length` is a field read.  The reader turns `#(...)` into
+`(vector ...)` -- the same wrap `'x -> (quote x)` uses -- which is why vector
+elements are *expressions*: `#((1 2) 3)` tries to apply `1`, exactly as
+`(vector (1 2) 3)` does.
+
+Because a vector stores values in `Car`, the collector's drain marks `Car` and
+`Cdr` for **every** cell kind rather than enumerating them: allocation resets
+those fields to nil for kinds that do not use them, so nothing is retained
+wrongly, and a future cell kind cannot be silently unrooted.  `tests/gc.scm`
+keeps a vector alive across three thousand allocations to prove it.
+
 ## Numbers
 
 Exact integers are fixnums in `-(2**31) .. 2**31 - 1` (see `Tr7.Config`).  The

@@ -34,6 +34,11 @@ is
       P_String_Ref,
       P_String_Append,
       P_Substring,
-      P_String_Equal);
+      P_String_Equal,
+      P_Vector_P,
+      P_Vector_Length,
+      P_Vector_Ref,
+      P_Vector_Set,
+      P_Vector);
 
 end Tr7.Ids;

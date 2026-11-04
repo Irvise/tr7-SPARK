@@ -42,6 +42,11 @@ is
          when P_String_Append    => return "string-append";
          when P_Substring        => return "substring";
          when P_String_Equal     => return "string=?";
+         when P_Vector_P          => return "vector?";
+         when P_Vector_Length     => return "vector-length";
+         when P_Vector_Ref        => return "vector-ref";
+         when P_Vector_Set        => return "vector-set!";
+         when P_Vector            => return "vector";
       end case;
    end Name_Of;
 
@@ -104,6 +109,26 @@ is
          Ok := False;
       end if;
    end String_Cell;
+
+   --  Fetch V as a vector cell: the shared start of the vector primitives.
+   procedure Vector_Cell
+     (H  : Heap_Type;
+      V  : Value;
+      C  : out Cell;
+      Ok : out Boolean)
+     with Pre => H.Ready
+   is
+   begin
+      C := (Kind => Cell_Free, others => <>);
+      Ok := False;
+      if not Is_Handle (V) then
+         return;
+      end if;
+      Fetch (H, To_Handle (V), C, Ok);
+      if Ok and then C.Kind /= Cell_Vector then
+         Ok := False;
+      end if;
+   end Vector_Cell;
 
    procedure Add
      (H      : Heap_Type;
@@ -521,6 +546,17 @@ is
 
       if P = P_Null_P then
          Res := Is_Nil (Arr (1));
+      elsif P = P_Vector_P then
+         Res := Is_Handle (Arr (1));
+         if Res then
+            declare
+               Kind  : Cell_Kind;
+               Valid : Boolean;
+            begin
+               Kind_Of (H, To_Handle (Arr (1)), Kind, Valid);
+               Res := Valid and then Kind = Cell_Vector;
+            end;
+         end if;
       elsif P = P_String_P then
          Res := Is_Handle (Arr (1));
          if Res then
@@ -823,6 +859,218 @@ is
       Result := True_Value;
    end String_Equal_Prim;
 
+
+   procedure Vector_Length_Prim
+     (H      : Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with Pre => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      C    : Cell;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 1, 1, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      Vector_Cell (H, Arr (1), C, Good);
+      if not Good then
+         return;
+      end if;
+      Result := From_Fixnum (Integer_64 (C.Arity));
+      Status := No_Error;
+   end Vector_Length_Prim;
+
+   procedure Vector_Ref_Prim
+     (H      : Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with Pre => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      C    : Cell;
+      Idx  : Fixnum;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 2, 2, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      Vector_Cell (H, Arr (1), C, Good);
+      if not Good then
+         return;
+      end if;
+      Get_Fixnum (Arr (2), Idx, Good);
+      if not Good then
+         return;
+      end if;
+      if Idx < 0 or else Idx >= Integer_64 (C.Arity) then
+         Status := Error_Index;
+         return;
+      end if;
+      Nth (H, C.Car, Natural (Idx), Result, Good);
+      if not Good then
+         --  The element chain is as long as Arity says, so this only happens
+         --  if the vector's internals were damaged.
+         Status := Error_Type;
+         return;
+      end if;
+      Status := No_Error;
+   end Vector_Ref_Prim;
+
+   procedure Vector_Set_Prim
+     (H      : in out Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Arr   : Value_Array;
+      Len   : Natural;
+      Good  : Boolean;
+      C     : Cell;
+      Idx   : Fixnum;
+      Cur   : Value;
+      Node  : Cell;
+      --  Bounded by construction: a vector holds at most Max_Arguments
+      --  elements, so no valid chain can walk past Max_List_Length.
+      Walk  : Natural range 0 .. Max_List_Length;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 3, 3, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      Vector_Cell (H, Arr (1), C, Good);
+      if not Good then
+         return;
+      end if;
+      Get_Fixnum (Arr (2), Idx, Good);
+      if not Good then
+         return;
+      end if;
+      if Idx < 0 or else Idx >= Integer_64 (C.Arity) then
+         Status := Error_Index;
+         return;
+      end if;
+
+      --  Walk to the Idx-th element cell and store into it.
+      Cur := C.Car;
+      Walk := 0;
+      loop
+         if not Is_Handle (Cur) then
+            Status := Error_Type;
+            return;
+         end if;
+         Fetch (H, To_Handle (Cur), Node, Good);
+         if not Good or else Node.Kind /= Cell_Pair then
+            Status := Error_Type;
+            return;
+         end if;
+         if Walk = Natural (Idx) then
+            Set_Car (H, To_Handle (Cur), Arr (3), Good);
+            if not Good then
+               Status := Error_Heap_Full;
+               return;
+            end if;
+            Result := Unspecified_Value;
+            Status := No_Error;
+            return;
+         end if;
+         if Walk = Max_List_Length then
+            Status := Error_Type;
+            return;
+         end if;
+         Cur := Node.Cdr;
+         Walk := Walk + 1;
+      end loop;
+   end Vector_Set_Prim;
+
+   procedure Vector_Prim
+     (H      : in out Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Arr   : Value_Array;
+      Len   : Natural;
+      Good  : Boolean;
+      Head  : Handle := Null_Handle;
+      Tail  : Handle := Null_Handle;
+      Hd    : Handle;
+      Elems : Value;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+
+      for I in 1 .. Len loop
+         pragma Loop_Invariant (Len <= Arr'Length);
+         pragma Loop_Invariant (H.Ready);
+         New_Pair (H, Arr (I), Nil_Value, Hd, Good);
+         if not Good then
+            Status := Error_Heap_Full;
+            return;
+         end if;
+         if I = 1 then
+            Head := Hd;
+         else
+            Set_Cdr (H, Tail, From_Handle (Hd), Good);
+            if not Good then
+               Status := Error_Heap_Full;
+               return;
+            end if;
+         end if;
+         Tail := Hd;
+      end loop;
+
+      if Len = 0 then
+         Elems := Nil_Value;
+      else
+         Elems := From_Handle (Head);
+      end if;
+      New_Vector (H, Elems, Len, Hd, Good);
+      if not Good then
+         Status := Error_Heap_Full;
+         return;
+      end if;
+      Result := From_Handle (Hd);
+      Status := No_Error;
+   end Vector_Prim;
+
    procedure Call
      (H      : in out Heap_Type;
       P      : Primitive_Id;
@@ -864,7 +1112,7 @@ is
          when P_List =>
             List_Prim (H, Args, Result, Status);
 
-         when P_Null_P | P_Pair_P | P_Not | P_String_P =>
+         when P_Null_P | P_Pair_P | P_Not | P_String_P | P_Vector_P =>
             Predicate (H, Args, P, Result, Status);
 
          when P_Eq_P =>
@@ -889,6 +1137,18 @@ is
             Put_Char (B, LF, Good);
             Result := Unspecified_Value;
             Status := (if Good then No_Error else Error_Output_Full);
+
+         when P_Vector_Length =>
+            Vector_Length_Prim (H, Args, Result, Status);
+
+         when P_Vector_Ref =>
+            Vector_Ref_Prim (H, Args, Result, Status);
+
+         when P_Vector_Set =>
+            Vector_Set_Prim (H, Args, Result, Status);
+
+         when P_Vector =>
+            Vector_Prim (H, Args, Result, Status);
 
          when P_String_Length =>
             String_Length_Prim (H, Args, Result, Status);

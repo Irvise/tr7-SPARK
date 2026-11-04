@@ -41,9 +41,9 @@ them, and a green run without them would be meaningless.
 
 Results: M0 closed at 935 checks; M1's collector and tail-call work at 990,
 the binding forms at 1,048, `cond`/`when`/`unless` at 1,079, `case` plus the
-mark-epoch collector at 1,097, and strings at **1,197 checks, 0 unproved,
-0 justified, 0 warnings** -- flow and initialization fully proved,
-non-aliasing proved, build warning-free.
+mark-epoch collector at 1,097, strings at 1,197, and vectors at **1,289
+checks, 0 unproved, 0 justified, 0 warnings** -- flow and initialization fully
+proved, non-aliasing proved, build warning-free.
 
 ## Iteration policy
 

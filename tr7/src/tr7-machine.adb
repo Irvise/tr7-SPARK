@@ -976,7 +976,7 @@ is
          when Cell_Pair =>
             Eval_Pair (H, M);
 
-         when Cell_String | Cell_Closure | Cell_Primitive
+         when Cell_String | Cell_Vector | Cell_Closure | Cell_Primitive
             | Cell_Environment | Cell_Continuation =>
             M.Result := M.Ctl;
             M.Mode := Mode_Return;

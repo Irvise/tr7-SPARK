@@ -19,6 +19,7 @@ is
       Cell_Pair,
       Cell_Symbol,
       Cell_String,
+      Cell_Vector,
       Cell_Closure,
       Cell_Primitive,
       Cell_Environment,

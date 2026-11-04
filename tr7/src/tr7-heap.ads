@@ -132,6 +132,18 @@ is
          and then Text'Length <= Max_Text,
        Post => H.Ready and then (if Ok then Result.Index in Valid_Cell_Index);
 
+   --  Vectors keep their length in Arity and their elements as a proper list
+   --  in Car, so a vector is one cell plus one cell per element.
+   procedure New_Vector
+     (H        : in out Heap_Type;
+      Elements : Value;
+      Arity    : Natural;
+      Result   : out Handle;
+      Ok       : out Boolean)
+     with
+       Pre  => H.Ready and then Arity <= Max_List_Length,
+       Post => H.Ready and then (if Ok then Result.Index in Valid_Cell_Index);
+
    procedure New_Closure
      (H      : in out Heap_Type;
       Params : Value;

@@ -29,8 +29,11 @@ Strings have `string?`, `string-length`, `string-ref`, `substring`,
 `string-append`, `string=?`, `#\x` reader escapes and wide-character
 write-back (`tests/strings.scm`).
 
-Not yet present: `do`, `quasiquote`, vectors and bytevectors, the full numeric
-tower, `call/cc`, ports beyond strings, the C ABI body, and `syntax-rules`.
+Vectors have `vector`, `vector?`, `vector-length`, `vector-ref`,
+`vector-set!` and the `#(...)` reader constructor (`tests/vectors.scm`).
+
+Not yet present: `do`, `quasiquote`, bytevectors, the full numeric tower,
+`call/cc`, ports beyond strings, the C ABI body, and `syntax-rules`.
 
 ## Build
 

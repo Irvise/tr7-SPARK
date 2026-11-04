@@ -383,6 +383,8 @@ is
       Quoted    : Value;
       Tail      : Value;
       St        : Read_Status;
+      Elems     : Value;
+      Vec_Sym   : Value;
    begin
       Result := Nil_Value;
       Status := Read_End;
@@ -450,6 +452,28 @@ is
             Pos := Pos + 2;
             Result := False_Value;
             Status := Read_Ok;
+            return;
+         elsif C = '(' then
+            --  #(1 2 3) is (vector 1 2 3): the elements are expressions and
+            --  get evaluated, so the reader only wraps what Read_List already
+            --  knows how to read -- the same trick as 'x becoming (quote x).
+            if Depth <= 1 then
+               return;
+            end if;
+            Pos := Pos + 1;
+            Read_List (H, S, Pos, Depth - 1, Elems, St);
+            if St /= Read_Ok then
+               Status := St;
+               return;
+            end if;
+            Intern (H, "vector", Vec_Sym, Ok);
+            if not Ok then
+               return;
+            end if;
+            Cons (H, Vec_Sym, Elems, Result, Ok);
+            if Ok then
+               Status := Read_Ok;
+            end if;
             return;
          elsif C = '\' then
             Pos := Pos + 2;

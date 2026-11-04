@@ -2,6 +2,7 @@
 (define build (lambda (n acc) (if (= n 0) acc (build (- n 1) (cons n acc)))))
 (define sum (lambda (xs acc) (if (null? xs) acc (sum (cdr xs) (+ acc (car xs))))))
 (define burn (lambda (n) (if (= n 0) 'done (burn (- n 1)))))
+(define v (vector 1 2 3))
 (define big (build 3000 '()))
 (show (car big))
 (show (sum big 0))
@@ -10,3 +11,4 @@
 (show (eq? 'a 'a))
 (show (burn 6000))
 (show (> (free-cells) 500))
+(show (vector-ref v 1))

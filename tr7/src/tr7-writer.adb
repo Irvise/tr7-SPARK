@@ -304,6 +304,48 @@ is
                         Put (B, '"', Ok);
                      end if;
 
+                  when Cell_Vector =>
+                     Put (B, "#(", Ok);
+                     if not Ok then
+                        return;
+                     end if;
+                     declare
+                        Cur   : Value := C.Car;
+                        Item  : Value;
+                        Node  : Cell;
+                        Node_Ok : Boolean;
+                        First : Boolean := True;
+                     begin
+                        loop
+                           exit when Is_Nil (Cur);
+                           if not Is_Handle (Cur) then
+                              Ok := False;
+                              return;
+                           end if;
+                           Fetch (H, To_Handle (Cur), Node, Node_Ok);
+                           if not Node_Ok or else Node.Kind /= Cell_Pair then
+                              Ok := False;
+                              return;
+                           end if;
+                           if not First then
+                              Put (B, ' ', Ok);
+                              if not Ok then
+                                 return;
+                              end if;
+                           end if;
+                           First := False;
+                           Item := Node.Car;
+                           Write_Internal (H, Item, B, Node_Ok, Depth - 1,
+                                           Display);
+                           Ok := Node_Ok;
+                           if not Ok then
+                              return;
+                           end if;
+                           Cur := Node.Cdr;
+                        end loop;
+                     end;
+                     Put (B, ')', Ok);
+
                   when Cell_Closure =>
                      Put (B, "#<procedure>", Ok);
 
