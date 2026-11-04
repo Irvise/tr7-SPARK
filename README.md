@@ -37,8 +37,12 @@ Bytevectors have `bytevector`, `bytevector?`, `bytevector-length`,
 (`tests/bytevectors.scm`); lists have `length`, `append`, `reverse`,
 `list-ref`, `assq` and `memq` (`tests/lists.scm`).
 
-Not yet present: `do`, `quasiquote`, the full numeric tower, `call/cc`, ports
-beyond strings, the C ABI body, and `syntax-rules`.
+Integer arithmetic has `quotient`, `remainder`, `modulo`, `abs`, `min`, `max`
+and `expt` on fixnums, with overflow and zero divisors reported by name
+(`tests/numbers.scm`).
+
+Not yet present: `do`, `quasiquote`, flonums, `apply`/`map`/`for-each`,
+`call/cc`, ports beyond strings, the C ABI body, and `syntax-rules`.
 
 ## Build
 

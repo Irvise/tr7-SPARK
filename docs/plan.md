@@ -194,8 +194,11 @@ Concrete order, each step keeping the proof and the suites green.
    they are either evaluator forms or a small Scheme prelude evaluated at
    engine start (the plan's preference, since it also brings `cadr` and
    friends for free), and ports with the OS boundary in `tr7i`.
-5. **Numeric tower step 1** -- `expt`, `quotient`/`remainder`/`modulo`,
-   `abs`, `min`/`max`, flonums (`+.`/`exact->inexact`) with the pure-Ada
-   formatting already planned.
+5. **Numeric tower step 1** -- the integer half is in: `abs`, `min`, `max`,
+   `quotient`, `remainder`, `modulo` and `expt` (`tests/numbers.scm`,
+   `tests/numovf.scm`), each overflow or zero-divisor path guarded and named.
+   Still to come as step 5b: flonums -- `exact->inexact`, `sqrt` and the
+   pure-Ada `%g`-style formatting, which is its own batch because the
+   formatter is real code and must round-trip through the writer.
 
 Each step ends with: build, four suites, `scripts/prove.sh`, commit.

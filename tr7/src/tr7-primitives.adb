@@ -58,6 +58,13 @@ is
          when P_List_Ref           => return "list-ref";
          when P_Assq               => return "assq";
          when P_Memq               => return "memq";
+         when P_Abs                => return "abs";
+         when P_Min                => return "min";
+         when P_Max                => return "max";
+         when P_Quotient           => return "quotient";
+         when P_Remainder          => return "remainder";
+         when P_Modulo             => return "modulo";
+         when P_Expt               => return "expt";
       end case;
    end Name_Of;
 
@@ -1588,6 +1595,356 @@ is
       Status := No_Error;
    end Memq_Prim;
 
+
+   --  The two guards every exact division needs: a zero divisor, and the one
+   --  product that would not fit a fixnum (Fixnum_Min / -1).
+   procedure Div_Guard
+     (A      : Fixnum;
+      B      : Fixnum;
+      Status : out Error_Code)
+   is
+   begin
+      if B = 0 then
+         Status := Error_Division_By_Zero;
+      elsif A = Fixnum_Min and then B = -1 then
+         Status := Error_Overflow;
+      else
+         Status := No_Error;
+      end if;
+   end Div_Guard;
+
+   procedure Abs_Prim
+     (H      : Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with Pre => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      N    : Fixnum;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 1, 1, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      Get_Fixnum (Arr (1), N, Good);
+      if not Good then
+         return;
+      end if;
+      if N = Fixnum_Min then
+         --  The positive counterpart does not fit a fixnum.
+         Status := Error_Overflow;
+         return;
+      end if;
+      if N < 0 then
+         Result := From_Fixnum (-Integer_64 (N));
+      else
+         Result := From_Fixnum (Integer_64 (N));
+      end if;
+      Status := No_Error;
+   end Abs_Prim;
+
+   procedure Min_Max_Prim
+     (H      : Heap_Type;
+      Args   : Value;
+      Pick   : Boolean;  --  True for max, False for min
+      Result : out Value;
+      Status : out Error_Code)
+     with Pre => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      Best : Fixnum;
+      Term : Fixnum;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      if Len = 0 then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+
+      Get_Fixnum (Arr (1), Best, Good);
+      if not Good then
+         return;
+      end if;
+      for I in 2 .. Len loop
+         pragma Loop_Invariant (Len <= Arr'Length);
+         pragma Loop_Invariant (Best >= Fixnum_Min);
+         pragma Loop_Invariant (Best <= Fixnum_Max);
+         Get_Fixnum (Arr (I), Term, Good);
+         if not Good then
+            return;
+         end if;
+         if Pick then
+            if Term > Best then
+               Best := Term;
+            end if;
+         else
+            if Term < Best then
+               Best := Term;
+            end if;
+         end if;
+      end loop;
+
+      Result := From_Fixnum (Integer_64 (Best));
+      Status := No_Error;
+   end Min_Max_Prim;
+
+   procedure Quotient_Prim
+     (H      : Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with Pre => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      A    : Fixnum;
+      B    : Fixnum;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 2, 2, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      Get_Fixnum (Arr (1), A, Good);
+      if not Good then
+         return;
+      end if;
+      Get_Fixnum (Arr (2), B, Good);
+      if not Good then
+         return;
+      end if;
+      Div_Guard (A, B, Status);
+      if Status /= No_Error then
+         return;
+      end if;
+      Result := From_Fixnum (Integer_64 (A / B));
+      Status := No_Error;
+   end Quotient_Prim;
+
+   procedure Remainder_Prim
+     (H      : Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with Pre => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      A    : Fixnum;
+      B    : Fixnum;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 2, 2, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      Get_Fixnum (Arr (1), A, Good);
+      if not Good then
+         return;
+      end if;
+      Get_Fixnum (Arr (2), B, Good);
+      if not Good then
+         return;
+      end if;
+      Div_Guard (A, B, Status);
+      if Status /= No_Error then
+         return;
+      end if;
+      Result := From_Fixnum (Integer_64 (A rem B));
+      Status := No_Error;
+   end Remainder_Prim;
+
+   procedure Modulo_Prim
+     (H      : Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with Pre => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      A    : Fixnum;
+      B    : Fixnum;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 2, 2, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      Get_Fixnum (Arr (1), A, Good);
+      if not Good then
+         return;
+      end if;
+      Get_Fixnum (Arr (2), B, Good);
+      if not Good then
+         return;
+      end if;
+      if B = 0 then
+         Status := Error_Division_By_Zero;
+         return;
+      end if;
+      if B = -1 then
+         --  A rem -1 is 0 for every A, Fixnum_Min included, and Ada's `mod`
+         --  is Scheme's: the result carries the divisor's sign.
+         Result := From_Fixnum (0);
+         Status := No_Error;
+         return;
+      end if;
+      Result := From_Fixnum (Integer_64 (A mod B));
+      Status := No_Error;
+   end Modulo_Prim;
+
+   procedure Expt_Prim
+     (H      : Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with Pre => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      A    : Fixnum;
+      N    : Fixnum;
+      Exp  : Natural range 0 .. 63;
+      Acc  : Fixnum;
+      Prod : Fixnum;
+      Mul_Ok : Boolean;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 2, 2, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      Get_Fixnum (Arr (1), A, Good);
+      if not Good then
+         return;
+      end if;
+      Get_Fixnum (Arr (2), N, Good);
+      if not Good then
+         return;
+      end if;
+
+      if N < 0 then
+         --  A negative power is a fraction unless |A| is 0 or 1, and v1 has no
+         --  rationals: say so rather than return something wrong.
+         if A = 0 then
+            Status := Error_Division_By_Zero;
+         elsif A = 1 then
+            Result := From_Fixnum (1);
+            Status := No_Error;
+         elsif A = -1 then
+            if (Integer_64 (N) mod 2) = 0 then
+               Result := From_Fixnum (1);
+            else
+               Result := From_Fixnum (-1);
+            end if;
+            Status := No_Error;
+         else
+            Status := Error_Not_Implemented;
+         end if;
+         return;
+      end if;
+      if N > 63 then
+         --  |A| >= 2 overflows by exponent 63; 0, 1 and -1 are handled above
+         --  and never grow, so a cap here cannot reject a representable value.
+         if A = 0 then
+            Result := From_Fixnum (0);
+            Status := No_Error;
+         elsif A = 1 or else A = -1 then
+            Result := From_Fixnum (1);
+            Status := No_Error;
+         else
+            Status := Error_Overflow;
+         end if;
+         return;
+      end if;
+
+      Exp := Natural (N);
+      Acc := 1;
+      if A = 0 and then Exp /= 0 then
+         Result := From_Fixnum (0);
+         Status := No_Error;
+         return;
+      end if;
+      if A = 1 then
+         Result := From_Fixnum (1);
+         Status := No_Error;
+         return;
+      end if;
+      if A = -1 then
+         if Exp mod 2 = 1 then
+            Result := From_Fixnum (-1);
+         else
+            Result := From_Fixnum (1);
+         end if;
+         Status := No_Error;
+         return;
+      end if;
+
+      --  |A| >= 2 and the exponent fits: multiply with the same overflow
+      --  guard Mul uses, so an out-of-range power is Error_Overflow.
+      for I in 1 .. Exp loop
+         pragma Loop_Invariant (Acc >= Fixnum_Min);
+         pragma Loop_Invariant (Acc <= Fixnum_Max);
+         pragma Loop_Invariant (Exp <= 63);
+         pragma Loop_Invariant (I <= Exp);
+         Mul_Fixnum (Acc, A, Prod, Mul_Ok);
+         if not Mul_Ok then
+            Status := Error_Overflow;
+            return;
+         end if;
+         Acc := Prod;
+      end loop;
+
+      Result := From_Fixnum (Integer_64 (Acc));
+      Status := No_Error;
+   end Expt_Prim;
+
    procedure Call
      (H      : in out Heap_Type;
       P      : Primitive_Id;
@@ -1655,6 +2012,27 @@ is
             Put_Char (B, LF, Good);
             Result := Unspecified_Value;
             Status := (if Good then No_Error else Error_Output_Full);
+
+         when P_Abs =>
+            Abs_Prim (H, Args, Result, Status);
+
+         when P_Min =>
+            Min_Max_Prim (H, Args, False, Result, Status);
+
+         when P_Max =>
+            Min_Max_Prim (H, Args, True, Result, Status);
+
+         when P_Quotient =>
+            Quotient_Prim (H, Args, Result, Status);
+
+         when P_Remainder =>
+            Remainder_Prim (H, Args, Result, Status);
+
+         when P_Modulo =>
+            Modulo_Prim (H, Args, Result, Status);
+
+         when P_Expt =>
+            Expt_Prim (H, Args, Result, Status);
 
          when P_Length =>
             Length_Prim (H, Args, Result, Status);

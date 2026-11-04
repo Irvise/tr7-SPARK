@@ -50,6 +50,13 @@ is
       P_Reverse,
       P_List_Ref,
       P_Assq,
-      P_Memq);
+      P_Memq,
+      P_Abs,
+      P_Min,
+      P_Max,
+      P_Quotient,
+      P_Remainder,
+      P_Modulo,
+      P_Expt);
 
 end Tr7.Ids;

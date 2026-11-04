@@ -129,6 +129,15 @@ silently wrapped or truncated.  A wider fixnum would require a wide multiply
 whose exactness the SMT provers cannot discharge; `docs/findings.md` records
 the measurements and the route back (big-integer contracts).
 
+Exact division follows Scheme through Ada: `quotient` is Ada's `/`
+(truncation toward zero), `remainder` is `rem` (dividend's sign) and `modulo`
+is `mod` (divisor's sign) -- all three share one guard for a zero divisor and
+for the single product `Fixnum_Min / -1` that no fixnum holds.  `abs` rejects
+`Fixnum_Min` for the same reason, and `expt` is fixnum-only: powers of 0, 1
+and -1 are answered without a loop, any exponent above 63 overflows (a base of
+at least 2 cannot stay in a fixnum longer), and a negative power of anything
+else is `not implemented` because v1 has no rationals.
+
 ## Errors
 
 Primitives report `Error_Code`, not a bare boolean: `Call` returns

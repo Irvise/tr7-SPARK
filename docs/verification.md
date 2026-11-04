@@ -39,13 +39,19 @@ The proof always runs with `TR7_CHECKS=on` (the script exports it): `-gnatp`
 would make GNATprove drop the corresponding obligations instead of proving
 them, and a green run without them would be meaningless.
 
-Results: M0 closed at 935 checks; M1's collector and tail-call work at 990,
-the binding forms at 1,048, `cond`/`when`/`unless` at 1,079, `case` plus the
-mark-epoch collector at 1,097, strings at 1,197, vectors at 1,289, and
-bytevectors -- closing step 3 of the plan -- at 1,407, and the list
-primitives (`length`, `append`, `reverse`, `list-ref`, `assq`, `memq`) at
-**1,493 checks, 0 unproved, 0 justified, 0 warnings**; flow and initialization
-fully proved, non-aliasing proved, build warning-free.
+Results, one entry per closed step of the plan:
+
+| step | checks |
+| --- | --- |
+| M0 (walking skeleton, proof-green core) | 935 |
+| M1.1 collector, tail calls | 990 |
+| M1.2 binding forms, `cond`, `case` | 1,048 -> 1,079 -> 1,097 |
+| M1.3 strings, vectors, bytevectors | 1,197 -> 1,289 -> 1,407 |
+| M1.4 list primitives | 1,493 |
+| M1.5 integer tower (`abs`/`min`/`max`/division/`expt`) | **1,602** |
+
+Every row is 0 unproved, 0 justified, 0 warnings, with flow, initialization
+and non-aliasing fully proved and a warning-free build.
 
 ## Iteration policy
 
