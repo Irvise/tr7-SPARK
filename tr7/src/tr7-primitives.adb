@@ -47,6 +47,11 @@ is
          when P_Vector_Ref        => return "vector-ref";
          when P_Vector_Set        => return "vector-set!";
          when P_Vector            => return "vector";
+         when P_Bytevector_P      => return "bytevector?";
+         when P_Bytevector_Length => return "bytevector-length";
+         when P_Bytevector_U8_Ref => return "bytevector-u8-ref";
+         when P_Bytevector_U8_Set => return "bytevector-u8-set!";
+         when P_Bytevector        => return "bytevector";
       end case;
    end Name_Of;
 
@@ -129,6 +134,26 @@ is
          Ok := False;
       end if;
    end Vector_Cell;
+
+   --  Fetch V as a bytevector cell.
+   procedure Bytevector_Cell
+     (H  : Heap_Type;
+      V  : Value;
+      C  : out Cell;
+      Ok : out Boolean)
+     with Pre => H.Ready
+   is
+   begin
+      C := (Kind => Cell_Free, others => <>);
+      Ok := False;
+      if not Is_Handle (V) then
+         return;
+      end if;
+      Fetch (H, To_Handle (V), C, Ok);
+      if Ok and then C.Kind /= Cell_Bytevector then
+         Ok := False;
+      end if;
+   end Bytevector_Cell;
 
    procedure Add
      (H      : Heap_Type;
@@ -546,6 +571,17 @@ is
 
       if P = P_Null_P then
          Res := Is_Nil (Arr (1));
+      elsif P = P_Bytevector_P then
+         Res := Is_Handle (Arr (1));
+         if Res then
+            declare
+               Kind  : Cell_Kind;
+               Valid : Boolean;
+            begin
+               Kind_Of (H, To_Handle (Arr (1)), Kind, Valid);
+               Res := Valid and then Kind = Cell_Bytevector;
+            end;
+         end if;
       elsif P = P_Vector_P then
          Res := Is_Handle (Arr (1));
          if Res then
@@ -1071,6 +1107,186 @@ is
       Status := No_Error;
    end Vector_Prim;
 
+
+   procedure Bytevector_Length_Prim
+     (H      : Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with Pre => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      C    : Cell;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 1, 1, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      Bytevector_Cell (H, Arr (1), C, Good);
+      if not Good then
+         return;
+      end if;
+      Result := From_Fixnum (Integer_64 (C.Name_Len));
+      Status := No_Error;
+   end Bytevector_Length_Prim;
+
+   procedure Bytevector_U8_Ref_Prim
+     (H      : Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with Pre => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      C    : Cell;
+      Idx  : Fixnum;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 2, 2, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      Bytevector_Cell (H, Arr (1), C, Good);
+      if not Good then
+         return;
+      end if;
+      Get_Fixnum (Arr (2), Idx, Good);
+      if not Good then
+         return;
+      end if;
+      if Idx < 0 or else Idx >= Integer_64 (C.Name_Len) then
+         Status := Error_Index;
+         return;
+      end if;
+      Result :=
+        From_Fixnum (Integer_64 (Character'Pos (C.Name (Natural (Idx) + 1))));
+      Status := No_Error;
+   end Bytevector_U8_Ref_Prim;
+
+   procedure Bytevector_U8_Set_Prim
+     (H      : in out Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Arr   : Value_Array;
+      Len   : Natural;
+      Good  : Boolean;
+      C     : Cell;
+      Idx   : Fixnum;
+      Byte_Val : Fixnum;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 3, 3, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      Bytevector_Cell (H, Arr (1), C, Good);
+      if not Good then
+         return;
+      end if;
+      Get_Fixnum (Arr (2), Idx, Good);
+      if not Good then
+         return;
+      end if;
+      if Idx < 0 or else Idx >= Integer_64 (C.Name_Len) then
+         Status := Error_Index;
+         return;
+      end if;
+      Get_Fixnum (Arr (3), Byte_Val, Good);
+      if not Good then
+         return;
+      end if;
+      if Byte_Val < 0 or else Byte_Val > 255 then
+         Status := Error_Range;
+         return;
+      end if;
+
+      Set_Byte (H, Arr (1), Natural (Idx),
+                Character'Val (Integer (Byte_Val)), Good);
+      if not Good then
+         Status := Error_Type;
+         return;
+      end if;
+      Result := Unspecified_Value;
+      Status := No_Error;
+   end Bytevector_U8_Set_Prim;
+
+   procedure Bytevector_Prim
+     (H      : in out Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      Buf  : Text_Buffer := (others => ' ');
+      Hd   : Handle;
+      V    : Fixnum;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      if Len > Max_Text then
+         Status := Error_Overflow;
+         return;
+      end if;
+
+      for I in 1 .. Len loop
+         pragma Loop_Invariant (Len <= Arr'Length);
+         Get_Fixnum (Arr (I), V, Good);
+         if not Good then
+            return;
+         end if;
+         if V < 0 or else V > 255 then
+            Status := Error_Range;
+            return;
+         end if;
+         Buf (I) := Character'Val (Integer (V));
+      end loop;
+
+      New_Bytevector (H, Buf (1 .. Len), Hd, Good);
+      if not Good then
+         Status := Error_Heap_Full;
+         return;
+      end if;
+      Result := From_Handle (Hd);
+      Status := No_Error;
+   end Bytevector_Prim;
+
    procedure Call
      (H      : in out Heap_Type;
       P      : Primitive_Id;
@@ -1112,7 +1328,8 @@ is
          when P_List =>
             List_Prim (H, Args, Result, Status);
 
-         when P_Null_P | P_Pair_P | P_Not | P_String_P | P_Vector_P =>
+         when P_Null_P | P_Pair_P | P_Not | P_String_P | P_Vector_P
+           | P_Bytevector_P =>
             Predicate (H, Args, P, Result, Status);
 
          when P_Eq_P =>
@@ -1137,6 +1354,18 @@ is
             Put_Char (B, LF, Good);
             Result := Unspecified_Value;
             Status := (if Good then No_Error else Error_Output_Full);
+
+         when P_Bytevector_Length =>
+            Bytevector_Length_Prim (H, Args, Result, Status);
+
+         when P_Bytevector_U8_Ref =>
+            Bytevector_U8_Ref_Prim (H, Args, Result, Status);
+
+         when P_Bytevector_U8_Set =>
+            Bytevector_U8_Set_Prim (H, Args, Result, Status);
+
+         when P_Bytevector =>
+            Bytevector_Prim (H, Args, Result, Status);
 
          when P_Vector_Length =>
             Vector_Length_Prim (H, Args, Result, Status);

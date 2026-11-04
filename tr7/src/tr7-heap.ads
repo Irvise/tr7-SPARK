@@ -144,6 +144,20 @@ is
        Pre  => H.Ready and then Arity <= Max_List_Length,
        Post => H.Ready and then (if Ok then Result.Index in Valid_Cell_Index);
 
+   --  Bytevectors keep their bytes in the same buffer strings use, so a byte
+   --  read or write is a field access; the length is Name_Len.
+   procedure New_Bytevector
+     (H      : in out Heap_Type;
+      Data   : String;
+      Result : out Handle;
+      Ok     : out Boolean)
+     with
+       Pre  => H.Ready
+         and then Data'First >= 1
+         and then Data'Last < Natural'Last
+         and then Data'Length <= Max_Text,
+       Post => H.Ready and then (if Ok then Result.Index in Valid_Cell_Index);
+
    procedure New_Closure
      (H      : in out Heap_Type;
       Params : Value;
@@ -173,6 +187,17 @@ is
      with
        Pre  => H.Ready,
        Post => H.Ready and then (if Ok then Result.Index in Valid_Cell_Index);
+
+   --  Store one byte of a bytevector (Index is 0-based, like bytevector-u8-ref).
+   procedure Set_Byte
+     (H     : in out Heap_Type;
+      V     : Value;
+      Index : Natural;
+      Byte  : Character;
+      Ok    : out Boolean)
+     with
+       Pre  => H.Ready and then Index < Max_Text,
+       Post => H.Ready;
 
    --  In-place mutation used by the environment and set-cdr!-style helpers.
    procedure Set_Car

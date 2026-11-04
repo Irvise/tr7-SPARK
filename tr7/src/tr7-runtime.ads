@@ -19,7 +19,8 @@ is
       Error_EOF,
       Error_Overflow,
       Error_Output_Full,
-      Error_Index);
+      Error_Index,
+      Error_Range);
 
    Max_Output : constant := 4_096;
 

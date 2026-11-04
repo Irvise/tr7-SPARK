@@ -453,6 +453,32 @@ is
             Result := False_Value;
             Status := Read_Ok;
             return;
+         elsif C = 'u' then
+            --  #u8(1 2 3) is (bytevector 1 2 3), the same wrap as #( ... ).
+            if Pos + 4 > S'Length then
+               return;
+            end if;
+            if S (Pos + 3) /= '8' or else S (Pos + 4) /= '(' then
+               return;
+            end if;
+            if Depth <= 1 then
+               return;
+            end if;
+            Pos := Pos + 3;
+            Read_List (H, S, Pos, Depth - 1, Elems, St);
+            if St /= Read_Ok then
+               Status := St;
+               return;
+            end if;
+            Intern (H, "bytevector", Vec_Sym, Ok);
+            if not Ok then
+               return;
+            end if;
+            Cons (H, Vec_Sym, Elems, Result, Ok);
+            if Ok then
+               Status := Read_Ok;
+            end if;
+            return;
          elsif C = '(' then
             --  #(1 2 3) is (vector 1 2 3): the elements are expressions and
             --  get evaluated, so the reader only wraps what Read_List already

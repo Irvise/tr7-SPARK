@@ -61,6 +61,38 @@ is
       end loop;
    end Put_Hex;
 
+   --  Print a non-negative value.  Bytes and counts have no sign to handle,
+   --  which is the point: routed through Put_Integer their arguments made the
+   --  sign branches statically dead, and GNAT said so at every call site.
+   procedure Put_Nat
+     (N  : Natural;
+      B  : in out Output_Buffer;
+      Ok : in out Boolean)
+   is
+      Dec_Chars : constant String := "0123456789";
+      Rest      : Natural := N;
+      Buf       : String (1 .. 10) := (others => '0');
+      Len       : Natural range 0 .. 10 := 0;
+   begin
+      if N = 0 then
+         Put (B, '0', Ok);
+         return;
+      end if;
+
+      while Len < 10 and then Rest > 0 loop
+         Len := Len + 1;
+         Buf (Len) := Dec_Chars (Integer (Rest mod 10) + 1);
+         Rest := Rest / 10;
+      end loop;
+
+      for I in reverse 1 .. Len loop
+         Put (B, Buf (I), Ok);
+         if not Ok then
+            return;
+         end if;
+      end loop;
+   end Put_Nat;
+
    procedure Put_Integer
      (N  : Integer_64;
       B  : in out Output_Buffer;
@@ -344,6 +376,25 @@ is
                            Cur := Node.Cdr;
                         end loop;
                      end;
+                     Put (B, ')', Ok);
+
+                  when Cell_Bytevector =>
+                     Put (B, "#u8(", Ok);
+                     if not Ok then
+                        return;
+                     end if;
+                     for I in 1 .. C.Name_Len loop
+                        if I > 1 then
+                           Put (B, ' ', Ok);
+                           if not Ok then
+                              return;
+                           end if;
+                        end if;
+                        Put_Nat (Natural (Character'Pos (C.Name (I))), B, Ok);
+                        if not Ok then
+                           return;
+                        end if;
+                     end loop;
                      Put (B, ')', Ok);
 
                   when Cell_Closure =>

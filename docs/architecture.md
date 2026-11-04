@@ -107,6 +107,16 @@ those fields to nil for kinds that do not use them, so nothing is retained
 wrongly, and a future cell kind cannot be silently unrooted.  `tests/gc.scm`
 keeps a vector alive across three thousand allocations to prove it.
 
+## Bytevectors
+
+A bytevector is the string cell with a different kind: the same `Max_Text`
+byte buffer, `Name_Len` as the length, and no value fields at all -- so
+`bytevector-u8-ref` and `bytevector-u8-set!` are field accesses (O(1), unlike
+a vector's walk), stores go through `Heap.Set_Byte`, and an out-of-bounds
+index is `Error_Index` while a value outside 0..255 is `Error_Range`.  The
+reader wraps `#u8(1 2 3)` into `(bytevector 1 2 3)` exactly as it does
+`#(...)`, and the writer prints `#u8(...)`.
+
 ## Numbers
 
 Exact integers are fixnums in `-(2**31) .. 2**31 - 1` (see `Tr7.Config`).  The

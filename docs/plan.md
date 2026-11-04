@@ -182,9 +182,11 @@ Concrete order, each step keeping the proof and the suites green.
    `#\x` escapes, wide-character write-back), and so are vectors:
    `vector`, `vector?`, `vector-length`, `vector-ref`, `vector-set!` and the
    `#(...)` reader constructor (`tests/vectors.scm`, `tests/vindex.scm`, and a
-   vector kept alive across the gc suite's churn).  Next: bytevectors
-   (`#u8(...)`, `bytevector-u8-ref/set!`) -- same cell layout as strings, with
-   the byte buffer standing in for the payload.
+   vector kept alive across the gc suite's churn), and bytevectors:
+   `bytevector`, `bytevector?`, `bytevector-length`, `bytevector-u8-ref`,
+   `bytevector-u8-set!` and `#u8(...)` in both reader and writer -- same cell
+   as a string, so byte access is O(1) (`tests/bytevectors.scm`,
+   `tests/bvindex.scm`, `tests/brange.scm`).
 4. **More primitives** -- `apply`, `map`, `for-each`, `append`, `reverse`,
    `list-ref`, `assq`/`memq`, predicates on strings/vectors/ports.
 5. **Numeric tower step 1** -- `expt`, `quotient`/`remainder`/`modulo`,

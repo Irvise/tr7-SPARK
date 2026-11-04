@@ -20,6 +20,7 @@ is
       Cell_Symbol,
       Cell_String,
       Cell_Vector,
+      Cell_Bytevector,
       Cell_Closure,
       Cell_Primitive,
       Cell_Environment,

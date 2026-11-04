@@ -39,6 +39,11 @@ is
       P_Vector_Length,
       P_Vector_Ref,
       P_Vector_Set,
-      P_Vector);
+      P_Vector,
+      P_Bytevector_P,
+      P_Bytevector_Length,
+      P_Bytevector_U8_Ref,
+      P_Bytevector_U8_Set,
+      P_Bytevector);
 
 end Tr7.Ids;

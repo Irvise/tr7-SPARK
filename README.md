@@ -32,8 +32,12 @@ write-back (`tests/strings.scm`).
 Vectors have `vector`, `vector?`, `vector-length`, `vector-ref`,
 `vector-set!` and the `#(...)` reader constructor (`tests/vectors.scm`).
 
-Not yet present: `do`, `quasiquote`, bytevectors, the full numeric tower,
-`call/cc`, ports beyond strings, the C ABI body, and `syntax-rules`.
+Bytevectors have `bytevector`, `bytevector?`, `bytevector-length`,
+`bytevector-u8-ref`, `bytevector-u8-set!` and `#u8(...)` in reader and writer
+(`tests/bytevectors.scm`).
+
+Not yet present: `do`, `quasiquote`, the full numeric tower, `call/cc`, ports
+beyond strings, the C ABI body, and `syntax-rules`.
 
 ## Build
 

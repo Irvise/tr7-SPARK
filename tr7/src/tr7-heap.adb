@@ -206,6 +206,32 @@ is
       end if;
    end New_Vector;
 
+   procedure New_Bytevector
+     (H      : in out Heap_Type;
+      Data   : String;
+      Result : out Handle;
+      Ok     : out Boolean)
+   is
+      Pos : Natural;
+   begin
+      if Data'Length > Max_Text then
+         Result := Null_Handle;
+         Ok := False;
+         return;
+      end if;
+
+      Allocate (H, Cell_Bytevector, Result, Ok);
+      if Ok then
+         Pos := Data'First;
+         for I in 1 .. Data'Length loop
+            pragma Loop_Invariant (Pos = Data'First + (I - 1));
+            H.Cells (Result.Index).Name (I) := Data (Pos);
+            Pos := Pos + 1;
+         end loop;
+         H.Cells (Result.Index).Name_Len := Data'Length;
+      end if;
+   end New_Bytevector;
+
    procedure New_Closure
      (H      : in out Heap_Type;
       Params : Value;
@@ -251,6 +277,31 @@ is
          H.Cells (Result.Index).Env := Parent;
       end if;
    end New_Environment;
+
+   procedure Set_Byte
+     (H     : in out Heap_Type;
+      V     : Value;
+      Index : Natural;
+      Byte  : Character;
+      Ok    : out Boolean)
+   is
+      C    : Cell;
+      Good : Boolean;
+   begin
+      Ok := False;
+      if not Is_Handle (V) then
+         return;
+      end if;
+      Fetch (H, To_Handle (V), C, Good);
+      if not Good
+        or else C.Kind /= Cell_Bytevector
+        or else Index >= C.Name_Len
+      then
+         return;
+      end if;
+      H.Cells (Valid_Cell_Index (To_Handle (V).Index)).Name (Index + 1) := Byte;
+      Ok := True;
+   end Set_Byte;
 
    procedure Set_Car
      (H    : in out Heap_Type;
