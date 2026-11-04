@@ -65,6 +65,7 @@ is
          when Error_EOF             => return "end of input";
          when Error_Overflow        => return "exact integer overflow";
          when Error_Output_Full     => return "output buffer full";
+         when Error_Index           => return "index out of range";
       end case;
    end Error_Name;
 

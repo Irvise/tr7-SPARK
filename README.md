@@ -25,9 +25,12 @@ Supported special forms: `quote`, `if`, `lambda`, `define`, `set!`, `begin`,
 `let`, `let*`, `letrec`, `and`, `or`, `cond`, `when`, `unless`, `case`
 (`tests/forms.scm`, `tests/cond.scm`, `tests/case.scm`).
 
-Not yet present: `do`, `quasiquote`, strings beyond literals, vectors,
-full numeric tower, `call/cc`, ports beyond strings, the C ABI body, and
-`syntax-rules`.
+Strings have `string?`, `string-length`, `string-ref`, `substring`,
+`string-append`, `string=?`, `#\x` reader escapes and wide-character
+write-back (`tests/strings.scm`).
+
+Not yet present: `do`, `quasiquote`, vectors and bytevectors, the full numeric
+tower, `call/cc`, ports beyond strings, the C ABI body, and `syntax-rules`.
 
 ## Build
 

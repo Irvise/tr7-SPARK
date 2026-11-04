@@ -18,7 +18,8 @@ is
       Error_Malformed,
       Error_EOF,
       Error_Overflow,
-      Error_Output_Full);
+      Error_Output_Full,
+      Error_Index);
 
    Max_Output : constant := 4_096;
 

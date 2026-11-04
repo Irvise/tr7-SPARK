@@ -32,6 +32,35 @@ is
       Ok := Good;
    end Put;
 
+   --  Print N in hexadecimal, most significant digit last.
+   procedure Put_Hex
+     (B  : in out Output_Buffer;
+      N  : Unsigned_32;
+      Ok : in out Boolean)
+   is
+      Hex_Chars : constant String := "0123456789abcdef";
+      Rest   : Unsigned_32 := N;
+      --  Started full: only the first Len entries are ever printed, but flow
+      --  analysis cannot follow writes through a computed index.
+      Buf    : String (1 .. 8) := (others => '0');
+      --  Subtype, not invariant: an Unsigned_32 needs at most eight digits, so
+      --  the bound is structural and the loop needs no claim of its own.
+      Len    : Natural range 0 .. 8 := 0;
+   begin
+      while Len < 8 and then Rest > 0 loop
+         Len := Len + 1;
+         Buf (Len) := Hex_Chars (Integer (Rest mod 16) + 1);
+         Rest := Rest / 16;
+      end loop;
+
+      for I in reverse 1 .. Len loop
+         Put (B, Buf (I), Ok);
+         if not Ok then
+            return;
+         end if;
+      end loop;
+   end Put_Hex;
+
    procedure Put_Integer
      (N  : Integer_64;
       B  : in out Output_Buffer;
@@ -232,7 +261,11 @@ is
                   if V.C <= 255 then
                      Put (B, Character'Val (Integer (V.C)), Ok);
                   else
-                     Put (B, '?', Ok);
+                     --  Beyond the byte range: the "#\" prefix is already
+                     --  out, so add the x and the digits -- that is #\x1234,
+                     --  which the reader gives back as the same character.
+                     Put (B, "x", Ok);
+                     Put_Hex (B, V.C, Ok);
                   end if;
                end if;
             end if;

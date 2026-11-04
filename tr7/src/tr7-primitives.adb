@@ -36,6 +36,12 @@ is
          when P_Newline         => return "newline";
          when P_Write           => return "write";
          when P_Free_Cells      => return "free-cells";
+         when P_String_P         => return "string?";
+         when P_String_Length    => return "string-length";
+         when P_String_Ref       => return "string-ref";
+         when P_String_Append    => return "string-append";
+         when P_Substring        => return "substring";
+         when P_String_Equal     => return "string=?";
       end case;
    end Name_Of;
 
@@ -78,6 +84,26 @@ is
    begin
       Ok := Len >= Min and then Len <= Max;
    end Check_Arity;
+
+   --  Fetch V as a string cell: the shared start of every string primitive.
+   procedure String_Cell
+     (H  : Heap_Type;
+      V  : Value;
+      C  : out Cell;
+      Ok : out Boolean)
+     with Pre => H.Ready
+   is
+   begin
+      C := (Kind => Cell_Free, others => <>);
+      Ok := False;
+      if not Is_Handle (V) then
+         return;
+      end if;
+      Fetch (H, To_Handle (V), C, Ok);
+      if Ok and then C.Kind /= Cell_String then
+         Ok := False;
+      end if;
+   end String_Cell;
 
    procedure Add
      (H      : Heap_Type;
@@ -495,6 +521,17 @@ is
 
       if P = P_Null_P then
          Res := Is_Nil (Arr (1));
+      elsif P = P_String_P then
+         Res := Is_Handle (Arr (1));
+         if Res then
+            declare
+               Kind  : Cell_Kind;
+               Valid : Boolean;
+            begin
+               Kind_Of (H, To_Handle (Arr (1)), Kind, Valid);
+               Res := Valid and then Kind = Cell_String;
+            end;
+         end if;
       elsif P = P_Pair_P then
          Res := Is_Handle (Arr (1));
          if Res then
@@ -544,6 +581,248 @@ is
       Status := (if W then No_Error else Error_Output_Full);
    end Display_Prim;
 
+
+   procedure String_Length_Prim
+     (H      : Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with Pre => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      C    : Cell;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 1, 1, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      String_Cell (H, Arr (1), C, Good);
+      if not Good then
+         return;
+      end if;
+      Result := From_Fixnum (Integer_64 (C.Name_Len));
+      Status := No_Error;
+   end String_Length_Prim;
+
+   procedure String_Ref_Prim
+     (H      : Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with Pre => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      C    : Cell;
+      Idx  : Fixnum;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 2, 2, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      String_Cell (H, Arr (1), C, Good);
+      if not Good then
+         return;
+      end if;
+      Get_Fixnum (Arr (2), Idx, Good);
+      if not Good then
+         return;
+      end if;
+      if Idx < 0 or else Idx >= Integer_64 (C.Name_Len) then
+         Status := Error_Index;
+         return;
+      end if;
+      Result :=
+        From_Character (Unsigned_32 (Character'Pos (C.Name (Natural (Idx) + 1))));
+      Status := No_Error;
+   end String_Ref_Prim;
+
+   procedure Substring_Prim
+     (H      : in out Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Arr   : Value_Array;
+      Len   : Natural;
+      Good  : Boolean;
+      C     : Cell;
+      Start : Fixnum;
+      Stop  : Fixnum;
+      Size  : Natural;
+      Hd    : Handle;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 3, 3, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      String_Cell (H, Arr (1), C, Good);
+      if not Good then
+         return;
+      end if;
+      Get_Fixnum (Arr (2), Start, Good);
+      if not Good then
+         return;
+      end if;
+      Get_Fixnum (Arr (3), Stop, Good);
+      if not Good then
+         return;
+      end if;
+      --  [Start, Stop) as R7RS defines it: start inside the string, stop past
+      --  it only far enough to be equal to it.
+      if Start < 0
+        or else Stop < Start
+        or else Stop > Integer_64 (C.Name_Len)
+      then
+         Status := Error_Index;
+         return;
+      end if;
+
+      Size := Natural (Stop - Start);
+      New_String (H, C.Name (Natural (Start) + 1 .. Natural (Start) + Size),
+                  Hd, Good);
+      if not Good then
+         Status := Error_Heap_Full;
+         return;
+      end if;
+      Result := From_Handle (Hd);
+      Status := No_Error;
+   end Substring_Prim;
+
+   procedure String_Append_Prim
+     (H      : in out Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Arr   : Value_Array;
+      Len   : Natural;
+      Good  : Boolean;
+      A     : Cell;
+      B     : Cell;
+      Total : Natural;
+      Buf   : Text_Buffer := (others => ' ');
+      Hd    : Handle;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 2, 2, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      String_Cell (H, Arr (1), A, Good);
+      if not Good then
+         return;
+      end if;
+      String_Cell (H, Arr (2), B, Good);
+      if not Good then
+         return;
+      end if;
+
+      Total := A.Name_Len + B.Name_Len;
+      if Total > Max_Text then
+         --  Strings live in one cell, so the result must fit in Max_Text.
+         Status := Error_Overflow;
+         return;
+      end if;
+      for I in 1 .. A.Name_Len loop
+         Buf (I) := A.Name (I);
+      end loop;
+      for I in 1 .. B.Name_Len loop
+         Buf (A.Name_Len + I) := B.Name (I);
+      end loop;
+
+      New_String (H, Buf (1 .. Total), Hd, Good);
+      if not Good then
+         Status := Error_Heap_Full;
+         return;
+      end if;
+      Result := From_Handle (Hd);
+      Status := No_Error;
+   end String_Append_Prim;
+
+   procedure String_Equal_Prim
+     (H      : Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with Pre => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      A    : Cell;
+      B    : Cell;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 2, 2, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      String_Cell (H, Arr (1), A, Good);
+      if not Good then
+         return;
+      end if;
+      String_Cell (H, Arr (2), B, Good);
+      if not Good then
+         return;
+      end if;
+
+      Status := No_Error;
+      if A.Name_Len /= B.Name_Len then
+         Result := False_Value;
+         return;
+      end if;
+      for I in 1 .. A.Name_Len loop
+         if A.Name (I) /= B.Name (I) then
+            Result := False_Value;
+            return;
+         end if;
+      end loop;
+      Result := True_Value;
+   end String_Equal_Prim;
+
    procedure Call
      (H      : in out Heap_Type;
       P      : Primitive_Id;
@@ -585,7 +864,7 @@ is
          when P_List =>
             List_Prim (H, Args, Result, Status);
 
-         when P_Null_P | P_Pair_P | P_Not =>
+         when P_Null_P | P_Pair_P | P_Not | P_String_P =>
             Predicate (H, Args, P, Result, Status);
 
          when P_Eq_P =>
@@ -610,6 +889,21 @@ is
             Put_Char (B, LF, Good);
             Result := Unspecified_Value;
             Status := (if Good then No_Error else Error_Output_Full);
+
+         when P_String_Length =>
+            String_Length_Prim (H, Args, Result, Status);
+
+         when P_String_Ref =>
+            String_Ref_Prim (H, Args, Result, Status);
+
+         when P_Substring =>
+            Substring_Prim (H, Args, Result, Status);
+
+         when P_String_Append =>
+            String_Append_Prim (H, Args, Result, Status);
+
+         when P_String_Equal =>
+            String_Equal_Prim (H, Args, Result, Status);
 
          when P_Free_Cells =>
             Length (H, Args, Len, Good);

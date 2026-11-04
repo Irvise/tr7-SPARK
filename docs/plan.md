@@ -177,9 +177,11 @@ Concrete order, each step keeping the proof and the suites green.
    (`tests/case.scm`, sharing `Same_Value` with `eq?`).  Still to come: `do`
    and `quasiquote` -- all as frame kinds in the evaluator; the reader stays
    syntax-only.
-3. **Strings and vectors** -- `string-length`, `string-ref`, `string-append`,
-   `substring`, `string=?`, vectors and bytevectors as chunked cells with
-   bounded accessors; the reader gains `#\x` hex escapes and `#(...)`.
+3. **Strings and vectors** -- strings are in: `string?`, `string-length`,
+   `string-ref`, `substring`, `string-append`, `string=?`, plus the reader's
+   `#\x` escapes and wide-character write-back (`tests/strings.scm`,
+   `tests/index.scm`).  Next: vectors and bytevectors as chunked cells with
+   bounded accessors, and the reader's `#(...)` constructor.
 4. **More primitives** -- `apply`, `map`, `for-each`, `append`, `reverse`,
    `list-ref`, `assq`/`memq`, predicates on strings/vectors/ports.
 5. **Numeric tower step 1** -- `expt`, `quotient`/`remainder`/`modulo`,

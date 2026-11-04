@@ -29,6 +29,21 @@ is
       else
         C);
 
+   function Is_Hex_Digit (C : Character) return Boolean is
+     ((C in '0' .. '9') or else (C in 'a' .. 'f') or else (C in 'A' .. 'F'));
+
+   --  Total by construction: every branch is non-negative, so the function
+   --  needs no precondition even though callers only feed it hex digits.
+   function Hex_Value (C : Character) return Unsigned_32 is
+     (if C in '0' .. '9' then
+        Unsigned_32 (Character'Pos (C) - Character'Pos ('0'))
+      elsif C in 'a' .. 'f' then
+        Unsigned_32 (Character'Pos (C) - Character'Pos ('a')) + 10
+      elsif C in 'A' .. 'F' then
+        Unsigned_32 (Character'Pos (C) - Character'Pos ('A')) + 10
+      else
+        0);
+
    procedure Skip_Atmosphere (S : String; Pos : in out Natural)
      with
        Pre  => S'First = 1 and then Pos <= S'Length,
@@ -465,6 +480,28 @@ is
                Result := From_Character (Unsigned_32 (Character'Pos (Buf (1))));
                Status := Read_Ok;
                return;
+            end if;
+
+            --  #\x41 is a hexadecimal scalar value; a lone x is the character
+            --  x, which the case above already accepted.
+            if Len >= 2 and then Buf (1) = 'x' then
+               declare
+                  Code : Unsigned_32 := 0;
+               begin
+                  for I in 2 .. Len loop
+                     pragma Loop_Invariant (Code <= 16#10FFFF#);
+                     if not Is_Hex_Digit (Buf (I)) then
+                        return;
+                     end if;
+                     if Code > 16#10FFFF# / 16 then
+                        return;
+                     end if;
+                     Code := Code * 16 + Hex_Value (Buf (I));
+                  end loop;
+                  Result := From_Character (Code);
+                  Status := Read_Ok;
+                  return;
+               end;
             end if;
 
             if Len = 5

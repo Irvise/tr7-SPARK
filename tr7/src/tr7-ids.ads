@@ -28,6 +28,12 @@ is
       P_Display,
       P_Newline,
       P_Write,
-      P_Free_Cells);
+      P_Free_Cells,
+      P_String_P,
+      P_String_Length,
+      P_String_Ref,
+      P_String_Append,
+      P_Substring,
+      P_String_Equal);
 
 end Tr7.Ids;

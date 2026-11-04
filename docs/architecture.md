@@ -80,6 +80,18 @@ receives an `out` parameter it would have to ignore.
 calls the engine and prints the resulting buffer.  The C ABI layer will convert
 between `tr7_t` and core handles at the boundary.
 
+## Strings
+
+A string is one cell: a `Max_Text` (256) byte buffer plus its length, so every
+string operation is bounded arithmetic on that buffer -- `string-length`,
+`string-ref` (0-based, R7RS half-open ranges in `substring`), `string=?`, and
+`string-append`, which fails with `Error_Overflow` when the result would not
+fit.  Strings are bytes: this is the documented v1 limit, not a Unicode claim.
+
+The reader accepts `#\x41` as a hexadecimal scalar value (a lone `#\x` stays
+the character `x`), and the writer prints characters beyond the byte range as
+`#\x1234`, so a wide character survives a write/read round trip.
+
 ## Numbers
 
 Exact integers are fixnums in `-(2**31) .. 2**31 - 1` (see `Tr7.Config`).  The
