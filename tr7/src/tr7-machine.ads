@@ -42,7 +42,14 @@ is
       --  map / for-each: waiting for the procedure called on the current
       --  heads; the accumulated results ride in Expr and the map/for-each
       --  choice in Alt.
-      K_Map);
+      K_Map,
+      --  do: the test of the current iteration has been evaluated.
+      K_Do,
+      --  do: the body of the current iteration has run; the steps follow.
+      K_Do_Body,
+      --  do: one step expression has been evaluated and its value is waiting
+      --  to be collected before the next step starts.
+      K_Do_Step);
 
    type Frame is record
       Kind : Frame_Kind := K_If;

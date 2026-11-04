@@ -52,7 +52,8 @@ Results, one entry per closed step of the plan:
 | rest arguments and the define shorthand | 1,637 |
 | `apply` | 1,654 |
 | `map` / `for-each` | 1,695 |
-| `quasiquote` converter | **1,826** |
+| `quasiquote` converter | 1,826 |
+| `do` (completes step 2) | **1,953** |
 
 Every row is 0 unproved, 0 justified, 0 warnings, with flow, initialization
 and non-aliasing fully proved and a warning-free build.

@@ -988,6 +988,509 @@ is
       M.Mode := Mode_Eval;
    end Start_Let;
 
+   --  Split one do binding into its variable and initializer, accepting the
+   --  optional step element and checking that nothing follows it: a binding
+   --  is (var init) or (var init step) and nothing else.
+   procedure Do_Binding
+     (H    : Heap_Type;
+      B    : Value;
+      Var  : out Value;
+      Init : out Value;
+      Ok   : out Boolean)
+     with Pre => H.Ready
+   is
+      Tail : Value;
+      More : Value;
+      Good : Boolean;
+   begin
+      --  Init starts here because the early returns below hand it to the
+      --  caller before Car_Of ever runs; Var does not need the same, since
+      --  Car_Of is the first thing that touches it and always writes it.
+      Init := Nil_Value;
+      Ok   := False;
+
+      Car_Of (H, B, Var, Good);
+      if not Good or else not Is_Handle (Var) then
+         return;
+      end if;
+      Cdr_Of (H, B, Tail, Good);
+      if not Good or else Is_Nil (Tail) then
+         return;
+      end if;
+      Car_Of (H, Tail, Init, Good);
+      if not Good then
+         return;
+      end if;
+      Cdr_Of (H, Tail, More, Good);
+      if not Good then
+         return;
+      end if;
+      if Is_Nil (More) then
+         Ok := True;
+         return;
+      end if;
+      Cdr_Of (H, More, Tail, Good);
+      if not Good or else not Is_Nil (Tail) then
+         return;
+      end if;
+      Ok := True;
+   end Do_Binding;
+
+   --  The same shape, but returning what the steps list needs: the variable
+   --  and the step expression.  The initializer is stepped over without being
+   --  named -- Cdr_Of is what proves an element is there at all.
+   procedure Do_Step_Of
+     (H        : Heap_Type;
+      B        : Value;
+      Var      : out Value;
+      Step     : out Value;
+      Has_Step : out Boolean;
+      Ok       : out Boolean)
+     with Pre => H.Ready
+   is
+      Tail : Value;
+      More : Value;
+      Good : Boolean;
+   begin
+      Step     := Nil_Value;
+      Has_Step := False;
+      Ok       := False;
+
+      Car_Of (H, B, Var, Good);
+      if not Good or else not Is_Handle (Var) then
+         return;
+      end if;
+      Cdr_Of (H, B, Tail, Good);
+      if not Good or else Is_Nil (Tail) then
+         return;
+      end if;
+      Cdr_Of (H, Tail, More, Good);
+      if not Good then
+         return;
+      end if;
+      if Is_Nil (More) then
+         Ok := True;
+         return;
+      end if;
+      Car_Of (H, More, Step, Good);
+      if not Good then
+         return;
+      end if;
+      Cdr_Of (H, More, Tail, Good);
+      if not Good or else not Is_Nil (Tail) then
+         return;
+      end if;
+      Has_Step := True;
+      Ok       := True;
+   end Do_Step_Of;
+
+   --  Collect the step values into the bindings -- only variables that have
+   --  a step are rebound; the others keep the binding they already have --
+   --  and then test again.  The values arrive reversed (each step conses
+   --  onto the front), so one Reverse puts them back in binding order for a
+   --  lockstep walk over the (var . step) pairs.
+   procedure Do_Restart
+     (H     : in out Heap_Type;
+      M     : in out Machine;
+      F     : in Frame)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      F2     : Frame;
+      Values : Value;
+      Cursor : Value;
+      Pair   : Value;
+      Var    : Value;
+      Val    : Value;
+      Rest   : Value;
+      Good   : Boolean;
+   begin
+      Reverse_List (H, F.Func, Values, Good);
+      if not Good then
+         Fail (M, Error_Malformed);
+         return;
+      end if;
+
+      Cursor := F.Expr;
+      loop
+         pragma Loop_Invariant (H.Ready);
+         exit when Is_Nil (Cursor);
+         Car_Of (H, Cursor, Pair, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Car_Of (H, Pair, Var, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Car_Of (H, Values, Val, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Tr7.Env.Define (H, F.Env, Var, Val, Good);
+         if not Good then
+            Fail (M, Error_Heap_Full);
+            return;
+         end if;
+         Cdr_Of (H, Cursor, Rest, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Cursor := Rest;
+         Cdr_Of (H, Values, Rest, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Values := Rest;
+      end loop;
+
+      --  The frame comes back as K_Do with the test waiting in Alt.  The
+      --  prepared frame is a copy: F itself is only ever read here, which
+      --  keeps its callers from being warned that a call set what they never
+      --  use again.
+      F2 := F;
+      F2.Kind := K_Do;
+      F2.Func := Nil_Value;
+      F2.Sym  := Nil_Value;
+      Push (M, F2, Good);
+      if not Good then
+         Fail (M, Error_Step_Limit);
+         return;
+      end if;
+      Car_Of (H, F.Alt, Val, Good);
+      if not Good then
+         Fail (M, Error_Malformed);
+         return;
+      end if;
+      M.Ctl := Val;
+      M.Env := F.Env;
+      M.Mode := Mode_Eval;
+   end Do_Restart;
+
+   --  Run the next step from the cursor in F.Sym, or finish the iteration
+   --  when the cursor is empty.  The frame arrives popped, so every path
+   --  either pushes it again or has already handed control elsewhere.
+   procedure Do_Advance
+     (H     : in out Heap_Type;
+      M     : in out Machine;
+      F     : in Frame)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      F2   : Frame;
+      Pair : Value;
+      Step : Value;
+      Rest : Value;
+      Good : Boolean;
+   begin
+      if Is_Nil (F.Sym) then
+         Do_Restart (H, M, F);
+         return;
+      end if;
+
+      Car_Of (H, F.Sym, Pair, Good);
+      if not Good then
+         Fail (M, Error_Malformed);
+         return;
+      end if;
+      Cdr_Of (H, F.Sym, Rest, Good);
+      if not Good then
+         Fail (M, Error_Malformed);
+         return;
+      end if;
+      Cdr_Of (H, Pair, Step, Good);
+      if not Good then
+         Fail (M, Error_Malformed);
+         return;
+      end if;
+
+      F2 := F;
+      F2.Sym := Rest;
+      F2.Kind := K_Do_Step;
+      Push (M, F2, Good);
+      if not Good then
+         Fail (M, Error_Step_Limit);
+         return;
+      end if;
+      M.Ctl := Step;
+      M.Env := F.Env;
+      M.Mode := Mode_Eval;
+   end Do_Advance;
+
+   --  Begin the step phase: every (var . step) pair is still to run and no
+   --  step value has been collected yet.
+   procedure Do_Steps
+     (H     : in out Heap_Type;
+      M     : in out Machine;
+      F     : in Frame)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      F2 : Frame;
+   begin
+      F2 := F;
+      F2.Kind := K_Do_Step;
+      F2.Sym  := F.Expr;
+      F2.Func := Nil_Value;
+      Do_Advance (H, M, F2);
+   end Do_Steps;
+
+   --  Start one iteration: build the steps list -- one (var . step) pair per
+   --  binding that has a step, in binding order -- push the do frame and
+   --  evaluate the test.  The list is built once per iteration here and
+   --  lives in the frame for every later phase, so a long-running loop never
+   --  rebuilds it.
+   procedure Do_Loop
+     (H    : in out Heap_Type;
+      M    : in out Machine;
+      Form : Value;
+      Env  : Handle)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Bindings  : Value;
+      Test      : Value;
+      Forms     : Value;
+      Tail      : Value;
+      Elem      : Value;
+      Var       : Value;
+      Step      : Value;
+      Has_Step  : Boolean;
+      Pair      : Value;
+      Acc       : Value;
+      Rev       : Value;
+      Test_Expr : Value;
+      F         : Frame;
+      Good      : Boolean;
+   begin
+      Cadr_Of (H, Form, Bindings, Good);
+      if not Good then
+         Fail (M, Error_Malformed);
+         return;
+      end if;
+      Caddr_Of (H, Form, Test, Good);
+      if not Good then
+         Fail (M, Error_Malformed);
+         return;
+      end if;
+      Cddr_Of (H, Form, Tail, Good);
+      if not Good then
+         Fail (M, Error_Malformed);
+         return;
+      end if;
+      Cdr_Of (H, Tail, Forms, Good);
+      if not Good then
+         Fail (M, Error_Malformed);
+         return;
+      end if;
+
+      Acc := Nil_Value;
+      Elem := Bindings;
+      loop
+         pragma Loop_Invariant (H.Ready);
+         exit when Is_Nil (Elem);
+         declare
+            Cur : Value;
+         begin
+            Car_Of (H, Elem, Cur, Good);
+            if not Good then
+               Fail (M, Error_Malformed);
+               return;
+            end if;
+            Do_Step_Of (H, Cur, Var, Step, Has_Step, Good);
+            if not Good then
+               Fail (M, Error_Malformed);
+               return;
+            end if;
+            if Has_Step then
+               Cons (H, Var, Step, Pair, Good);   -- (var . step)
+               if not Good then
+                  Fail (M, Error_Heap_Full);
+                  return;
+               end if;
+               Cons (H, Pair, Acc, Rev, Good);
+               if not Good then
+                  Fail (M, Error_Heap_Full);
+                  return;
+               end if;
+               Acc := Rev;
+            end if;
+            Cdr_Of (H, Elem, Cur, Good);
+            if not Good then
+               Fail (M, Error_Malformed);
+               return;
+            end if;
+            Elem := Cur;
+         end;
+      end loop;
+      Reverse_List (H, Acc, Rev, Good);
+      if not Good then
+         Fail (M, Error_Malformed);
+         return;
+      end if;
+
+      Car_Of (H, Test, Test_Expr, Good);
+      if not Good then
+         Fail (M, Error_Malformed);
+         return;
+      end if;
+
+      F := (Kind => K_Do,
+            Expr => Rev,
+            Alt  => Test,
+            Args => Forms,
+            Env  => Env,
+            others => <>);
+      Push (M, F, Good);
+      if not Good then
+         Fail (M, Error_Step_Limit);
+         return;
+      end if;
+      M.Ctl := Test_Expr;
+      M.Env := Env;
+      M.Mode := Mode_Eval;
+   end Do_Loop;
+
+   --  (do ((var init [step]) ...) (test result ...) body ...): check the
+   --  shape once so a malformed form fails before anything runs, bind the
+   --  initializers where the form appears (parallel, like let), and hand the
+   --  loop to Do_Loop with the environment they were bound into.  The K_Bind
+   --  frame carries Alt = #t as the marker that says "when the initializers
+   --  are done, start the loop instead of a body".
+   procedure Start_Do
+     (H : in out Heap_Type;
+      M : in out Machine)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Bindings   : Value;
+      Test       : Value;
+      Elem       : Value;
+      Bnd        : Value;
+      Next       : Value;
+      Var        : Value;
+      Init       : Value;
+      First_Var  : Value;
+      First_Init : Value;
+      First      : Boolean;
+      Form       : Value;
+      New_Env  : Handle;
+      T_C      : Cell;
+      V_C      : Cell;
+      F        : Frame;
+      Good     : Boolean;
+   begin
+      Form := M.Ctl;
+
+      Cadr_Of (H, M.Ctl, Bindings, Good);
+      if not Good then
+         Fail (M, Error_Malformed);
+         return;
+      end if;
+      Caddr_Of (H, M.Ctl, Test, Good);
+      if not Good then
+         Fail (M, Error_Malformed);
+         return;
+      end if;
+      --  The test clause is (test result ...): at least the test, and it
+      --  has to be a list to have one.
+      if not Is_Handle (Test) then
+         Fail (M, Error_Malformed);
+         return;
+      end if;
+      Fetch (H, To_Handle (Test), T_C, Good);
+      if not Good or else T_C.Kind /= Cell_Pair then
+         Fail (M, Error_Malformed);
+         return;
+      end if;
+
+      --  Every binding is (var init) or (var init step) with a symbol in
+      --  front, checked before anything runs; the first one's variable and
+      --  initializer are kept for the K_Bind frame below.
+      First_Var  := Nil_Value;
+      First_Init := Nil_Value;
+      First      := True;
+      Elem := Bindings;
+      loop
+         pragma Loop_Invariant (H.Ready);
+         exit when Is_Nil (Elem);
+         Car_Of (H, Elem, Bnd, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Do_Binding (H, Bnd, Var, Init, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         if not Is_Handle (Var) then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Fetch (H, To_Handle (Var), V_C, Good);
+         if not Good or else V_C.Kind /= Cell_Symbol then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         if First then
+            First_Var  := Var;
+            First_Init := Init;
+            First      := False;
+         end if;
+         Cdr_Of (H, Elem, Next, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Elem := Next;
+      end loop;
+
+      Tr7.Env.New_Environment (H, M.Env, New_Env, Good);
+      if not Good then
+         Fail (M, Error_Heap_Full);
+         return;
+      end if;
+
+      if Is_Nil (Bindings) then
+         Do_Loop (H, M, Form, New_Env);
+         return;
+      end if;
+
+      --  The first binding's initializer runs where the form appears, and
+      --  the K_Bind frame comes back through Do_Loop when the last is stored.
+      Cdr_Of (H, Bindings, Next, Good);
+      if not Good then
+         Fail (M, Error_Malformed);
+         return;
+      end if;
+
+      F := (Kind => K_Bind,
+            Sym  => First_Var,
+            Args => Next,
+            Func => From_Handle (New_Env),
+            Expr => Form,
+            Env  => M.Env,
+            Alt  => True_Value);
+      Push (M, F, Good);
+      if not Good then
+         Fail (M, Error_Step_Limit);
+         return;
+      end if;
+      M.Ctl := First_Init;
+      M.Mode := Mode_Eval;
+   end Start_Do;
+
    --  Enter the next cond clause.  Advancing after a failed test comes back
    --  here, so the clause walk happens one step at a time and needs no loop of
    --  its own: the evaluator's run loop is the driver.
@@ -1655,6 +2158,9 @@ is
       elsif Is_Symbol_Named (H, Head, "letrec") then
          Start_Let (H, M, Let_Sequential);
          return;
+      elsif Is_Symbol_Named (H, Head, "do") then
+         Start_Do (H, M);
+         return;
       elsif Is_Symbol_Named (H, Head, "case") then
          Cadr_Of (H, M.Ctl, Test, Good);
          if not Good then
@@ -2022,7 +2528,13 @@ is
             end if;
 
             if Is_Nil (F.Args) then
-               Start_Body (H, M, F.Expr, To_Handle (F.Func));
+               if F.Alt.Kind = Kind_Boolean and then F.Alt.B then
+                  --  A do form's initializers are all stored: the loop runs
+                  --  in the environment they were bound into.
+                  Do_Loop (H, M, F.Expr, To_Handle (F.Func));
+               else
+                  Start_Body (H, M, F.Expr, To_Handle (F.Func));
+               end if;
                return;
             end if;
 
@@ -2036,7 +2548,16 @@ is
                Fail (M, Error_Malformed);
                return;
             end if;
-            Split_Binding (H, First, Var, Init, Good);
+
+            if F.Alt.Kind = Kind_Boolean and then F.Alt.B then
+               --  A do binding is (var init [step]): the step expression is
+               --  not needed here -- Do_Loop rebuilt the list of them from
+               --  the form -- but Split_Binding would reject the third
+               --  element outright.
+               Do_Binding (H, First, Var, Init, Good);
+            else
+               Split_Binding (H, First, Var, Init, Good);
+            end if;
             if not Good then
                Fail (M, Error_Malformed);
                return;
@@ -2052,6 +2573,54 @@ is
             M.Ctl := Init;
             M.Env := F.Env;
             M.Mode := Mode_Eval;
+
+         when K_Do | K_Do_Body | K_Do_Step =>
+            if F.Kind = K_Do then
+               --  The test has been evaluated in the bindings environment.
+               if Is_True (M.Result) then
+                  Cdr_Of (H, F.Alt, Rest, Good);
+                  if not Good then
+                     Fail (M, Error_Malformed);
+                     return;
+                  end if;
+                  --  The results are the form's value, in tail position;
+                  --  an empty clause is unspecified (Start_Body's answer).
+                  Start_Body (H, M, Rest, F.Env);
+                  return;
+               end if;
+
+               --  False: the body runs next, then the steps.
+               if Is_Nil (F.Args) then
+                  Do_Steps (H, M, F);
+                  return;
+               end if;
+               F.Kind := K_Do_Body;
+               Push (M, F, Good);
+               if not Good then
+                  Fail (M, Error_Step_Limit);
+                  return;
+               end if;
+               Start_Body (H, M, F.Args, F.Env);
+               return;
+            end if;
+
+            if F.Kind = K_Do_Body then
+               --  The body has run; its values are discarded.
+               Do_Steps (H, M, F);
+               return;
+            end if;
+
+            --  A step's value has been evaluated: collect it, then run the
+            --  next step or rebind and test again.  Steps are all evaluated
+            --  before any variable is rebound, which is what makes them
+            --  parallel.
+            Cons (H, M.Result, F.Func, New_Args, Good);
+            if not Good then
+               Fail (M, Error_Heap_Full);
+               return;
+            end if;
+            F.Func := New_Args;
+            Do_Advance (H, M, F);
 
          when K_Map =>
             --  The call for this round has just returned its value: keep it

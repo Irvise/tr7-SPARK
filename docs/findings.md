@@ -141,6 +141,15 @@ Consequences:
   (`Data_Code`'s `Ok := False`, `QQ_Spine`'s `Status := No_Error`, both dead
   because a callee's `out` always wrote first).  Both were fixed by moving or
   deleting the assignment, never by annotating anything.
+- The same family has a third shape: *"X is set by Y but not used after the
+  call"*, which fires when one call site needs only some of a helper's `out`
+  parameters.  The fix that keeps every caller honest is to split the helper
+  by what callers actually read (`Do_Binding` for var+init, `Do_Step_Of` for
+  var+step) rather than to introduce dummy reads or annotations.  Related: an
+  `in out` parameter the callee writes but the caller never reads again draws
+  the same complaint about the *caller's* variable -- taking it `in` and
+  copying to a local inside the callee (`F2 := F; F2.Kind := ...; Push (F2)`)
+  moves the write to where it is genuinely used.
 - Loop invariants that the construct already implies -- `for I in 0 .. N`
   giving `I <= N`, `while Mag > 0` giving `Mag >= 0`, a counter nothing
   decrements -- draw `condition is always True` warnings: delete them.

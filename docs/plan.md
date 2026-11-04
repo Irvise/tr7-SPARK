@@ -181,12 +181,13 @@ Concrete order, each step keeping the proof and the suites green.
    `letrec`, `and`, `or` are in
    (`tests/forms.scm`: parallel binding swaps, sequential rebinding, mutual
    `letrec` recursion, short-circuit side effects), so are `cond` (with `=>`
-   and `else`, `tests/cond.scm`), `when`, `unless`, and `case`
-   (`tests/case.scm`, sharing `Same_Value` with `eq?`), and so is `quasiquote`
-   -- as a converter to `cons`/`append`/`quote` code rather than a frame kind
-   (`tests/qq.scm`, `tests/bad-qq.scm`, design in `docs/architecture.md`).
-   Still to come: `do` -- one frame kind in the evaluator; the reader stays
-   syntax-only.
+   and `else`, `tests/cond.scm`), `when`, `unless`, `case`
+   (`tests/case.scm`, sharing `Same_Value` with `eq?`), `quasiquote` -- as a
+   converter to `cons`/`append`/`quote` code rather than a frame kind
+   (`tests/qq.scm`, `tests/bad-qq.scm`) -- and finally `do`
+   (`tests/do.scm`, `tests/bad-do.scm`), which completes this step: three
+   frame kinds (test, body, steps), initializers through the marked `K_Bind`,
+   and parallel steps that rebind only the variables that have one.
 3. **Strings and vectors** -- strings are in (`string?`, `string-length`,
    `string-ref`, `substring`, `string-append`, `string=?`, the reader's
    `#\x` escapes, wide-character write-back), and so are vectors:

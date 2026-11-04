@@ -37,7 +37,8 @@ then arguments left to right, accumulating a reversed argument list.
 
 Supported forms: `quote`, `if`, `lambda`, `define`, `set!`, `begin`,
 `let`, `let*`, `letrec`, `and`, `or`, `cond` (with `=>` and `else`),
-`when`, `unless`, `case`, and procedure application.  `let` and its
+`when`, `unless`, `case`, `do`, `quasiquote`, `apply`, `map`, `for-each`,
+and procedure application.  `let` and its
 relatives are driven by one frame kind (`K_Bind`) that stores the binding just
 produced and the environment the remaining initializers run in: parallel `let`
 evaluates them in the enclosing environment, `let*`/`letrec` in the new one.
@@ -49,6 +50,16 @@ test value in `K_Cond_App` while the procedure is evaluated and then calls it
 with that value.  `case` evaluates its key first (`K_Case`), then scans each
 clause's datum list with `Same_Value` -- `memv`'s relation, and `eq?`'s --
 matching immediate values by content and heap values by identity.
+
+`do` runs on three frame kinds, one per phase: `K_Do` receives the test's
+value, `K_Do_Body` the body's (discarded), and `K_Do_Step` each step's.
+Initializers are bound by the existing `K_Bind`, marked with `Alt = #t` so that
+when the last one is stored the frame starts the loop instead of a body.  Each
+iteration rebuilds nothing: the frame carries the steps as `(var . step)` pairs
+(only bindings that have a step), the test clause, the body and the
+environment; steps are all evaluated before `Do_Restart` rebinds anything --
+which is what makes them parallel -- and variables without a step are simply
+never rebound, so `set!` is the way to change them.
 
 Every sequence-like form (`begin`, a lambda body, `let` bodies, the operands of
 `and`/`or`) is in tail position when only one form remains, so no frame is
