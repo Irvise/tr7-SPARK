@@ -34,7 +34,8 @@ Vectors have `vector`, `vector?`, `vector-length`, `vector-ref`,
 
 Bytevectors have `bytevector`, `bytevector?`, `bytevector-length`,
 `bytevector-u8-ref`, `bytevector-u8-set!` and `#u8(...)` in reader and writer
-(`tests/bytevectors.scm`).
+(`tests/bytevectors.scm`); lists have `length`, `append`, `reverse`,
+`list-ref`, `assq` and `memq` (`tests/lists.scm`).
 
 Not yet present: `do`, `quasiquote`, the full numeric tower, `call/cc`, ports
 beyond strings, the C ABI body, and `syntax-rules`.

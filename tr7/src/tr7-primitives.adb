@@ -52,6 +52,12 @@ is
          when P_Bytevector_U8_Ref => return "bytevector-u8-ref";
          when P_Bytevector_U8_Set => return "bytevector-u8-set!";
          when P_Bytevector        => return "bytevector";
+         when P_Length             => return "length";
+         when P_Append             => return "append";
+         when P_Reverse            => return "reverse";
+         when P_List_Ref           => return "list-ref";
+         when P_Assq               => return "assq";
+         when P_Memq               => return "memq";
       end case;
    end Name_Of;
 
@@ -1287,6 +1293,301 @@ is
       Status := No_Error;
    end Bytevector_Prim;
 
+
+   procedure Length_Prim
+     (H      : Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with Pre => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      N    : Natural;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 1, 1, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      Length (H, Arr (1), N, Good);
+      if not Good then
+         --  Not a proper list, or longer than Max_List_Length.
+         return;
+      end if;
+      Result := From_Fixnum (Integer_64 (N));
+      Status := No_Error;
+   end Length_Prim;
+
+   procedure Append_Prim
+     (H      : in out Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Arr   : Value_Array;
+      Len   : Natural;
+      Good  : Boolean;
+      Head  : Handle;
+      Tail  : Handle;
+      Hd    : Handle;
+      Cur   : Value;
+      Node  : Cell;
+      Count : Natural := 0;
+      Any   : Boolean := False;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+
+      for J in 1 .. Len loop
+         pragma Loop_Invariant (Len <= Arr'Length);
+         pragma Loop_Invariant (H.Ready);
+         pragma Loop_Invariant (Count <= Max_List_Length);
+         Cur := Arr (J);
+         loop
+            pragma Loop_Invariant (H.Ready);
+            pragma Loop_Invariant (Count <= Max_List_Length);
+            exit when Is_Nil (Cur);
+            if not Is_Handle (Cur) then
+               --  One of the arguments was not a proper list.
+               Status := Error_Type;
+               return;
+            end if;
+            Fetch (H, To_Handle (Cur), Node, Good);
+            if not Good or else Node.Kind /= Cell_Pair then
+               Status := Error_Type;
+               return;
+            end if;
+            if Count >= Max_List_Length then
+               Status := Error_Overflow;
+               return;
+            end if;
+            New_Pair (H, Node.Car, Nil_Value, Hd, Good);
+            if not Good then
+               Status := Error_Heap_Full;
+               return;
+            end if;
+            if Any then
+               Set_Cdr (H, Tail, From_Handle (Hd), Good);
+               if not Good then
+                  Status := Error_Heap_Full;
+                  return;
+               end if;
+            else
+               Head := Hd;
+               Any := True;
+            end if;
+            Tail := Hd;
+            Count := Count + 1;
+            Cur := Node.Cdr;
+         end loop;
+      end loop;
+
+      if Any then
+         Result := From_Handle (Head);
+      else
+         Result := Nil_Value;
+      end if;
+      Status := No_Error;
+   end Append_Prim;
+
+   procedure Reverse_Prim
+     (H      : in out Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 1, 1, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      Reverse_List (H, Arr (1), Result, Good);
+      if not Good then
+         return;
+      end if;
+      Status := No_Error;
+   end Reverse_Prim;
+
+   procedure List_Ref_Prim
+     (H      : Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with Pre => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      N    : Natural;
+      Idx  : Fixnum;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 2, 2, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      Get_Fixnum (Arr (2), Idx, Good);
+      if not Good then
+         return;
+      end if;
+      Length (H, Arr (1), N, Good);
+      if not Good then
+         return;
+      end if;
+      if Idx < 0 or else Idx >= Integer_64 (N) then
+         Status := Error_Index;
+         return;
+      end if;
+      Nth (H, Arr (1), Natural (Idx), Result, Good);
+      if not Good then
+         return;
+      end if;
+      Status := No_Error;
+   end List_Ref_Prim;
+
+   procedure Assq_Prim
+     (H      : Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with Pre => H.Ready
+   is
+      Arr   : Value_Array;
+      Len   : Natural;
+      Good  : Boolean;
+      Cur   : Value;
+      Node  : Cell;
+      Assoc : Cell;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 2, 2, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+
+      Cur := Arr (2);
+      loop
+         exit when Is_Nil (Cur);
+         if not Is_Handle (Cur) then
+            Status := Error_Type;
+            return;
+         end if;
+         Fetch (H, To_Handle (Cur), Node, Good);
+         if not Good or else Node.Kind /= Cell_Pair then
+            Status := Error_Type;
+            return;
+         end if;
+         if not Is_Handle (Node.Car) then
+            Status := Error_Type;
+            return;
+         end if;
+         Fetch (H, To_Handle (Node.Car), Assoc, Good);
+         if not Good or else Assoc.Kind /= Cell_Pair then
+            Status := Error_Type;
+            return;
+         end if;
+         if Same_Value (Assoc.Car, Arr (1)) then
+            Result := Node.Car;
+            Status := No_Error;
+            return;
+         end if;
+         Cur := Node.Cdr;
+      end loop;
+
+      Result := False_Value;
+      Status := No_Error;
+   end Assq_Prim;
+
+   procedure Memq_Prim
+     (H      : Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with Pre => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      Cur  : Value;
+      Node : Cell;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 2, 2, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+
+      Cur := Arr (2);
+      loop
+         exit when Is_Nil (Cur);
+         if not Is_Handle (Cur) then
+            Status := Error_Type;
+            return;
+         end if;
+         Fetch (H, To_Handle (Cur), Node, Good);
+         if not Good or else Node.Kind /= Cell_Pair then
+            Status := Error_Type;
+            return;
+         end if;
+         if Same_Value (Node.Car, Arr (1)) then
+            --  memq returns the tail starting at the match, not a boolean.
+            Result := Cur;
+            Status := No_Error;
+            return;
+         end if;
+         Cur := Node.Cdr;
+      end loop;
+
+      Result := False_Value;
+      Status := No_Error;
+   end Memq_Prim;
+
    procedure Call
      (H      : in out Heap_Type;
       P      : Primitive_Id;
@@ -1354,6 +1655,24 @@ is
             Put_Char (B, LF, Good);
             Result := Unspecified_Value;
             Status := (if Good then No_Error else Error_Output_Full);
+
+         when P_Length =>
+            Length_Prim (H, Args, Result, Status);
+
+         when P_Append =>
+            Append_Prim (H, Args, Result, Status);
+
+         when P_Reverse =>
+            Reverse_Prim (H, Args, Result, Status);
+
+         when P_List_Ref =>
+            List_Ref_Prim (H, Args, Result, Status);
+
+         when P_Assq =>
+            Assq_Prim (H, Args, Result, Status);
+
+         when P_Memq =>
+            Memq_Prim (H, Args, Result, Status);
 
          when P_Bytevector_Length =>
             Bytevector_Length_Prim (H, Args, Result, Status);

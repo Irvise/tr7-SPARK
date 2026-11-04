@@ -44,6 +44,12 @@ is
       P_Bytevector_Length,
       P_Bytevector_U8_Ref,
       P_Bytevector_U8_Set,
-      P_Bytevector);
+      P_Bytevector,
+      P_Length,
+      P_Append,
+      P_Reverse,
+      P_List_Ref,
+      P_Assq,
+      P_Memq);
 
 end Tr7.Ids;

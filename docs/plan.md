@@ -187,8 +187,13 @@ Concrete order, each step keeping the proof and the suites green.
    `bytevector-u8-set!` and `#u8(...)` in both reader and writer -- same cell
    as a string, so byte access is O(1) (`tests/bytevectors.scm`,
    `tests/bvindex.scm`, `tests/brange.scm`).
-4. **More primitives** -- `apply`, `map`, `for-each`, `append`, `reverse`,
-   `list-ref`, `assq`/`memq`, predicates on strings/vectors/ports.
+4. **More primitives** -- `length`, `append`, `reverse`, `list-ref`, `assq`
+   and `memq` are in (`tests/lists.scm`); `string?`/`vector?`/`bytevector?`
+   arrived with step 3.  Still to come: `apply`, `map`, `for-each` -- these
+   three *call* Scheme procedures, so they cannot be heap-walking primitives;
+   they are either evaluator forms or a small Scheme prelude evaluated at
+   engine start (the plan's preference, since it also brings `cadr` and
+   friends for free), and ports with the OS boundary in `tr7i`.
 5. **Numeric tower step 1** -- `expt`, `quotient`/`remainder`/`modulo`,
    `abs`, `min`/`max`, flonums (`+.`/`exact->inexact`) with the pure-Ada
    formatting already planned.
