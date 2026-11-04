@@ -16,7 +16,9 @@ is
       Error_Not_Implemented,
       Error_Step_Limit,
       Error_Malformed,
-      Error_EOF);
+      Error_EOF,
+      Error_Overflow,
+      Error_Output_Full);
 
    Max_Output : constant := 4_096;
 

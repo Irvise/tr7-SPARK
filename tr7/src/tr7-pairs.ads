@@ -18,7 +18,9 @@ is
       D      : Value;
       Result : out Value;
       Ok     : out Boolean)
-     with Pre => H.Ready;
+     with
+       Pre  => H.Ready,
+       Post => H.Ready;
 
    procedure Car_Of
      (H      : Heap_Type;
@@ -67,7 +69,9 @@ is
       List : Value;
       Len  : out Natural;
       Ok   : out Boolean)
-     with Pre => H.Ready;
+     with
+       Pre  => H.Ready,
+       Post => (if Ok then Len <= Max_List_Length);
 
    procedure Nth
      (H      : Heap_Type;
@@ -82,7 +86,9 @@ is
       List   : Value;
       Result : out Value;
       Ok     : out Boolean)
-     with Pre => H.Ready;
+     with
+       Pre  => H.Ready,
+       Post => H.Ready;
 
    procedure To_Array
      (H      : Heap_Type;
@@ -90,7 +96,9 @@ is
       Arr    : out Value_Array;
       Len    : out Natural;
       Ok     : out Boolean)
-     with Pre => H.Ready;
+     with
+       Pre  => H.Ready,
+       Post => (if Ok then Len <= Arr'Length);
 
    --  Value_Array is declared in Tr7.Values.
 end Tr7.Pairs;

@@ -43,7 +43,6 @@ is
       Top    : Natural range 0 .. Max_Stack := 0;
       Result : Value := Nil_Value;
       Error  : Error_Code := No_Error;
-      Steps  : Natural := 0;
    end record;
 
    procedure Evaluate
@@ -52,6 +51,8 @@ is
       Expr   : Value;
       M      : in out Machine;
       B      : in out Output_Buffer)
-     with Pre => H.Ready;
+     with
+       Pre  => H.Ready,
+       Post => H.Ready;
 
 end Tr7.Machine;

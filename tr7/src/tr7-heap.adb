@@ -1,8 +1,3 @@
-with Tr7.Cells; use Tr7.Cells;
-with Tr7.Config; use Tr7.Config;
-with Tr7.Heap; use Tr7.Heap;
-with Tr7.Ids; use Tr7.Ids;
-with Tr7.Values; use Tr7.Values;
 
 package body Tr7.Heap with
    SPARK_Mode => On
@@ -37,7 +32,7 @@ is
       Ok     : out Boolean)
    is
    begin
-      if H.Free_Head = 0 then
+      if H.Free_Head = 0 or else H.Free_Count = 0 then
          Result := Null_Handle;
          Ok := False;
          return;
@@ -75,9 +70,10 @@ is
    begin
       Ok := False;
       Fetch (H, Hd, C, Valid);
-      if not Valid then
+      if not Valid or else H.Free_Count = Max_Cells then
          return;
       end if;
+      pragma Unreferenced (C);
 
       H.Cells (Valid_Cell_Index (Hd.Index)).Kind := Cell_Free;
       H.Cells (Valid_Cell_Index (Hd.Index)).Mark := False;

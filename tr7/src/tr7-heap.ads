@@ -34,7 +34,8 @@ is
       Ok     : out Boolean)
      with
        Pre  => H.Ready,
-       Post => (if Ok
+       Post => H.Ready
+         and then (if Ok
                   then Result.Index in Valid_Cell_Index
                     and then Result.Generation /= 0
                     and then H.Free_Count = H.Free_Count'Old - 1
@@ -47,7 +48,8 @@ is
       Ok : out Boolean)
      with
        Pre  => H.Ready,
-       Post => (if Ok
+       Post => H.Ready
+         and then (if Ok
                   then H.Free_Count = H.Free_Count'Old + 1
                   else H.Free_Count = H.Free_Count'Old);
 
@@ -75,7 +77,9 @@ is
       Cdr    : Value;
       Result : out Handle;
       Ok     : out Boolean)
-     with Pre => H.Ready;
+     with
+       Pre  => H.Ready,
+       Post => H.Ready;
 
    procedure New_Symbol
      (H      : in out Heap_Type;
@@ -83,10 +87,11 @@ is
       Result : out Handle;
       Ok     : out Boolean)
      with
-       Pre  => Name'First >= 1
+       Pre  => H.Ready
+         and then Name'First >= 1
          and then Name'Last < Natural'Last
          and then Name'Length <= Max_Text,
-       Post => (if Ok then Result.Index in Valid_Cell_Index);
+       Post => H.Ready and then (if Ok then Result.Index in Valid_Cell_Index);
 
    procedure New_String
      (H      : in out Heap_Type;
@@ -94,10 +99,11 @@ is
       Result : out Handle;
       Ok     : out Boolean)
      with
-       Pre  => Text'First >= 1
+       Pre  => H.Ready
+         and then Text'First >= 1
          and then Text'Last < Natural'Last
          and then Text'Length <= Max_Text,
-       Post => (if Ok then Result.Index in Valid_Cell_Index);
+       Post => H.Ready and then (if Ok then Result.Index in Valid_Cell_Index);
 
    procedure New_Closure
      (H      : in out Heap_Type;
@@ -109,7 +115,7 @@ is
       Ok     : out Boolean)
      with
        Pre  => H.Ready and then Arity <= Max_List_Length,
-       Post => (if Ok then Result.Index in Valid_Cell_Index);
+       Post => H.Ready and then (if Ok then Result.Index in Valid_Cell_Index);
 
    procedure New_Primitive
      (H      : in out Heap_Type;
@@ -118,7 +124,7 @@ is
       Ok     : out Boolean)
      with
        Pre  => H.Ready,
-       Post => (if Ok then Result.Index in Valid_Cell_Index);
+       Post => H.Ready and then (if Ok then Result.Index in Valid_Cell_Index);
 
    procedure New_Environment
      (H      : in out Heap_Type;
@@ -127,7 +133,7 @@ is
       Ok     : out Boolean)
      with
        Pre  => H.Ready,
-       Post => (if Ok then Result.Index in Valid_Cell_Index);
+       Post => H.Ready and then (if Ok then Result.Index in Valid_Cell_Index);
 
    --  In-place mutation used by the environment and set-cdr!-style helpers.
    procedure Set_Car
@@ -135,13 +141,17 @@ is
       Pair : Handle;
       V    : Value;
       Ok   : out Boolean)
-     with Pre => H.Ready;
+     with
+       Pre  => H.Ready,
+       Post => H.Ready;
 
    procedure Set_Cdr
      (H    : in out Heap_Type;
       Pair : Handle;
       V    : Value;
       Ok   : out Boolean)
-     with Pre => H.Ready;
+     with
+       Pre  => H.Ready,
+       Post => H.Ready;
 
 end Tr7.Heap;

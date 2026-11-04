@@ -17,7 +17,9 @@ is
       Parent : Handle;
       Result : out Handle;
       Ok     : out Boolean)
-     with Pre => H.Ready;
+     with
+       Pre  => H.Ready,
+       Post => H.Ready;
 
    procedure Define
      (H   : in out Heap_Type;
@@ -25,7 +27,9 @@ is
       Sym : Value;
       Val : Value;
       Ok  : out Boolean)
-     with Pre => H.Ready;
+     with
+       Pre  => H.Ready,
+       Post => H.Ready;
 
    procedure Set
      (H   : in out Heap_Type;
@@ -33,7 +37,9 @@ is
       Sym : Value;
       Val : Value;
       Ok  : out Boolean)
-     with Pre => H.Ready;
+     with
+       Pre  => H.Ready,
+       Post => H.Ready;
 
    procedure Lookup
      (H   : Heap_Type;

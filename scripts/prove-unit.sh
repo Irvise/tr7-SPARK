@@ -12,4 +12,4 @@ cd "$root/tr7"
    --level=4 \
    --checks-as-errors=on \
    --timeout="$timeout" \
-   -j1
+   -j4

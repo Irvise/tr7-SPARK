@@ -9,6 +9,11 @@ Milestone M0: walking skeleton.  The REPL evaluates literals, `quote`, `if`,
 `lambda`, `define`, `set!`, `begin`, applications, and a first set of
 primitives.  The core uses handles, a fixed cell arena and a CEK evaluator.
 
+Exact integers are fixnums in `-(2**31) .. 2**31 - 1`; out-of-range arithmetic
+reports `exact integer overflow` instead of wrapping.  The range satisfies
+R7RS's index-range requirement and keeps every arithmetic proof obligation
+inside what the SMT provers discharge in five seconds (`docs/findings.md`).
+
 Not yet present: GC, `let` and its relatives, strings beyond literals, vectors,
 full numeric tower, `call/cc`, ports beyond strings, the C ABI body, and
 `syntax-rules`.

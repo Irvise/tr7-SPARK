@@ -2,6 +2,10 @@
 --
 --  The engine owns the heap, the global environment and the output buffer.  It
 --  contains no OS code: files and consoles live in the tr7i boundary.
+--
+--  Readiness is a single fact: the heap is ready.  Keeping one flag instead of
+--  a separate boolean plus a heap flag means every precondition can be
+--  established by the caller without an extra link invariant.
 
 with Tr7.Heap; use Tr7.Heap;
 with Tr7.Machine;
@@ -17,13 +21,12 @@ is
       Global : Handle := Null_Handle;
       Output : Output_Buffer;
       M      : Tr7.Machine.Machine;
-      Ready  : Boolean := False;
    end record;
 
    procedure Initialize
      (E  : out Engine;
       Ok : out Boolean)
-     with Post => (if Ok then E.Ready);
+     with Post => E.H.Ready;
 
    procedure Evaluate
      (E      : in out Engine;
@@ -31,20 +34,24 @@ is
       Result : out Value;
       Status : out Error_Code)
      with
-       Pre  => E.Ready
-         and then Source'First = 1;
+       Pre  => E.H.Ready
+         and then Source'First = 1
+         and then Source'Last <= Natural'Last - 2,
+       Post => E.H.Ready;
 
    procedure Print_Value
      (E       : in out Engine;
       V       : Value;
       Display : Boolean;
       Ok      : out Boolean)
-     with Pre => E.Ready;
+     with
+       Pre  => E.H.Ready,
+       Post => E.H.Ready;
 
    procedure Reset_Output (E : in out Engine)
-     with Pre => E.Ready;
+     with Pre => E.H.Ready;
 
    function Output_Text (E : Engine) return String
-     with Pre => E.Ready;
+     with Pre => E.H.Ready;
 
 end Tr7.Engine;

@@ -22,7 +22,19 @@ is
    Max_Output : constant := 4_096;
    Max_Steps : constant := 1_000_000;
 
-   Fixnum_Min : constant := -2 ** 61;
-   Fixnum_Max : constant := 2 ** 61 - 1;
+   --  Exact integers are fixnums in -(2**31) .. 2**31 - 1.  Two properties
+   --  drive this choice:
+   --
+   --    * R7RS only requires exact integers throughout the range usable as
+   --      indexes of lists, vectors, bytevectors and strings and as the result
+   --      of their length procedures -- far below 2**30 here -- and permits
+   --      an implementation to report a restriction outside its range;
+   --    * the product of two fixnums then fits in Integer_64 (at most 2**62),
+   --      so exact multiplication is one direct multiply plus a range check,
+   --      an obligation GNATprove discharges with constant-bound arithmetic.
+   --      A wider fixnum needs a wide multiply whose exactness is beyond the
+   --      SMT provers; see docs/findings.md.
+   Fixnum_Min : constant := -(2 ** 31);
+   Fixnum_Max : constant := 2 ** 31 - 1;
 
 end Tr7.Config;

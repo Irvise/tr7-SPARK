@@ -2,9 +2,7 @@ with Ada.Characters.Latin_1; use Ada.Characters.Latin_1;
 with Interfaces; use Interfaces;
 with Tr7.Cells; use Tr7.Cells;
 with Tr7.Config; use Tr7.Config;
-with Tr7.Heap; use Tr7.Heap;
 with Tr7.Pairs; use Tr7.Pairs;
-with Tr7.Values; use Tr7.Values;
 
 package body Tr7.Reader with
    SPARK_Mode => On
@@ -86,7 +84,9 @@ is
       Is_Integer  : out Boolean;
       N           : out Integer_64;
       Ok          : out Boolean)
-     with Pre => Text'First >= 1
+     with
+       Pre  => Text'First >= 1 and then Text'Last < Natural'Last,
+       Post => (if Ok then N in Fixnum_Min .. Fixnum_Max)
    is
       I        : Natural;
       Neg      : Boolean := False;
@@ -123,6 +123,8 @@ is
 
       while I <= Text'Last and then Is_Digit (Text (I)) loop
          pragma Loop_Invariant (Acc >= 0);
+         pragma Loop_Invariant (I >= Text'First);
+         pragma Loop_Invariant (I <= Text'Last);
          D := Integer_64 (Character'Pos (Text (I)) - Character'Pos ('0'));
          if Acc > (Mag_Max - D) / 10 then
             Ok := False;
@@ -150,9 +152,10 @@ is
      with
        Pre  => H.Ready
          and then S'First = 1
+         and then S'Last <= Natural'Last - 2
          and then Pos <= S'Length
          and then Depth > 0,
-       Post => Pos <= S'Length,
+       Post => H.Ready and then Pos <= S'Length,
        Subprogram_Variant => (Decreases => Depth);
 
    procedure Read_List
@@ -165,9 +168,10 @@ is
      with
        Pre  => H.Ready
          and then S'First = 1
-         and then Pos <= S'Length
+         and then S'Last <= Natural'Last - 2
+         and then Pos < S'Length
          and then Depth > 0,
-       Post => Pos <= S'Length,
+       Post => H.Ready and then Pos <= S'Length,
        Subprogram_Variant => (Decreases => Depth)
    is
       Head    : Handle := Null_Handle;
@@ -189,6 +193,8 @@ is
 
       loop
          pragma Loop_Invariant (Pos <= S'Length);
+         pragma Loop_Invariant (Count <= Max_List_Length);
+         pragma Loop_Invariant (H.Ready);
          Skip_Atmosphere (S, Pos);
          if Pos >= S'Length then
             return;
@@ -247,6 +253,9 @@ is
             end if;
          end if;
          Tail := Hd;
+         if Count >= Max_List_Length then
+            return;
+         end if;
          Count := Count + 1;
       end loop;
 
@@ -271,8 +280,11 @@ is
       Result : out Value;
       Status : out Read_Status)
      with
-       Pre  => H.Ready and then S'First = 1 and then Pos <= S'Length,
-       Post => Pos <= S'Length
+       Pre  => H.Ready
+         and then S'First = 1
+         and then S'Last <= Natural'Last - 2
+         and then Pos < S'Length,
+       Post => H.Ready and then Pos <= S'Length
    is
       Buf : Text_Buffer := (others => ' ');
       Len : Natural := 0;
@@ -289,6 +301,8 @@ is
 
       loop
          pragma Loop_Invariant (Pos <= S'Length);
+         pragma Loop_Invariant (Len <= Max_Text);
+         pragma Loop_Invariant (H.Ready);
          if Pos >= S'Length then
             return;
          end if;
@@ -345,8 +359,7 @@ is
    is
       C      : Character;
       Buf    : Text_Buffer := (others => ' ');
-      Len    : Natural := 0;
-      Hd     : Handle;
+      Len    : Natural;
       Ok     : Boolean;
       Is_Num : Boolean;
       Num    : Integer_64;
@@ -438,6 +451,7 @@ is
             Len := 0;
             while Pos < S'Length and then not Is_Delimiter (S (Pos + 1)) loop
                pragma Loop_Invariant (Pos <= S'Length);
+               pragma Loop_Invariant (Len <= Max_Text);
                if Len >= Max_Text then
                   return;
                end if;
@@ -498,6 +512,7 @@ is
       Len := 0;
       while Pos < S'Length and then not Is_Delimiter (S (Pos + 1)) loop
          pragma Loop_Invariant (Pos <= S'Length);
+         pragma Loop_Invariant (Len <= Max_Text);
          if Len >= Max_Text then
             return;
          end if;

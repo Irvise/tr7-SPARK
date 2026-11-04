@@ -1,7 +1,4 @@
 with Tr7.Cells; use Tr7.Cells;
-with Tr7.Config; use Tr7.Config;
-with Tr7.Heap; use Tr7.Heap;
-with Tr7.Values; use Tr7.Values;
 
 package body Tr7.Pairs with
    SPARK_Mode => On
@@ -150,6 +147,7 @@ is
       Len := 0;
       Ok := False;
       loop
+         pragma Loop_Invariant (Count <= Max_List_Length);
          if Is_Nil (Cur) then
             Len := Count;
             Ok := True;
@@ -185,7 +183,6 @@ is
       Result := Nil_Value;
       Ok := False;
       for I in 0 .. N loop
-         pragma Loop_Invariant (I <= N);
          if Is_Nil (Cur) then
             return;
          end if;
@@ -220,6 +217,7 @@ is
       Result := Nil_Value;
       Ok := False;
       loop
+         pragma Loop_Invariant (H.Ready);
          if Is_Nil (Cur) then
             Result := Acc;
             Ok := True;
@@ -259,6 +257,7 @@ is
       Len := 0;
       Ok := False;
       loop
+         pragma Loop_Invariant (Count <= Max_Arguments);
          if Is_Nil (Cur) then
             Len := Count;
             Ok := True;

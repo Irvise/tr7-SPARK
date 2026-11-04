@@ -4,7 +4,7 @@ set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 
 status=0
-for suite in smoke primitives; do
+for suite in smoke primitives errors arity; do
    "$root/tr7i/bin/tr7i" "$root/tests/$suite.scm" > "/tmp/tr7-$suite.out"
    if diff -u "$root/tests/$suite.expected" "/tmp/tr7-$suite.out"; then
       echo "test: $suite ok"

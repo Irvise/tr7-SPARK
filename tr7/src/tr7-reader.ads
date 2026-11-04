@@ -22,8 +22,9 @@ is
      with
        Pre  => H.Ready
          and then Name'First >= 1
+         and then Name'Last < Natural'Last
          and then Name'Length <= Tr7.Config.Max_Text,
-       Post => (if Ok then Is_Handle (Result));
+       Post => H.Ready and then (if Ok then Is_Handle (Result));
 
    procedure Read_Datum
      (H      : in out Heap_Type;
@@ -34,7 +35,8 @@ is
      with
        Pre  => H.Ready
          and then Source'First = 1
+         and then Source'Last <= Natural'Last - 2
          and then Pos <= Source'Length,
-       Post => Pos <= Source'Length;
+       Post => H.Ready and then Pos <= Source'Length;
 
 end Tr7.Reader;

@@ -1,10 +1,7 @@
 with Tr7.Env;
-with Tr7.Heap; use Tr7.Heap;
 with Tr7.Ids; use Tr7.Ids;
 with Tr7.Primitives; use Tr7.Primitives;
 with Tr7.Reader; use Tr7.Reader;
-with Tr7.Runtime; use Tr7.Runtime;
-with Tr7.Values; use Tr7.Values;
 with Tr7.Writer;
 
 package body Tr7.Engine with
@@ -19,34 +16,32 @@ is
       Prim_H : Handle;
       Sym    : Value;
    begin
+      --  Every component of the OUT parameter is written before it can be
+      --  read, on every path, including the failure paths.
+      E.Output := (Data => (others => ' '), Len => 0);
+      E.M := (others => <>);
       Heap.Initialize (E.H);
+
       Tr7.Env.New_Environment (E.H, Null_Handle, E.Global, Good);
       if not Good then
-         E.Ready := False;
          Ok := False;
          return;
       end if;
-
-      E.Output := (Data => (others => ' '), Len => 0);
-      E.Ready := True;
 
       for P in Primitive_Id loop
          if P /= P_None then
             New_Primitive (E.H, P, Prim_H, Good);
             if not Good then
-               E.Ready := False;
                Ok := False;
                return;
             end if;
             Intern (E.H, Name_Of (P), Sym, Good);
             if not Good then
-               E.Ready := False;
                Ok := False;
                return;
             end if;
             Tr7.Env.Define (E.H, E.Global, Sym, From_Handle (Prim_H), Good);
             if not Good then
-               E.Ready := False;
                Ok := False;
                return;
             end if;
@@ -71,6 +66,8 @@ is
       Status := No_Error;
 
       loop
+         pragma Loop_Invariant (Pos <= Source'Length);
+         pragma Loop_Invariant (E.H.Ready);
          Old_Pos := Pos;
          Read_Datum (E.H, Source, Pos, Expr, RS);
          case RS is
@@ -112,6 +109,6 @@ is
    end Reset_Output;
 
    function Output_Text (E : Engine) return String is
-     (String (E.Output.Data (1 .. E.Output.Len)));
+      (String (E.Output.Data (1 .. E.Output.Len)));
 
 end Tr7.Engine;

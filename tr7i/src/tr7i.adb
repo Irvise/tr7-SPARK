@@ -1,7 +1,8 @@
 --  tr7i -- interactive interpreter and script runner.
 --
 --  This is the trusted boundary: all console and file I/O lives here, and the
---  verified core only ever sees strings and output buffers.
+--  verified core only ever sees strings and output buffers.  It is therefore
+--  deliberately outside SPARK, unlike the tr7 crate.
 
 with Ada.Characters.Latin_1; use Ada.Characters.Latin_1;
 with Ada.Command_Line;
@@ -10,7 +11,7 @@ with Tr7.Engine; use Tr7.Engine;
 with Tr7.Runtime; use Tr7.Runtime;
 with Tr7.Values; use Tr7.Values;
 
-procedure Tr7i is
+procedure Tr7i with SPARK_Mode => Off is
 
    Max_Source : constant := 1_000_000;
    Max_Line   : constant := 4_096;
@@ -36,19 +37,24 @@ procedure Tr7i is
    procedure Show_Result (Status : Error_Code; V : Value) is
       POk : Boolean;
    begin
-      if Status /= No_Error then
-         Put_Line ("error: " & Error_Name (Status));
-         return;
-      end if;
-
-      if not (V.Kind = Kind_Unspecified or else V.Kind = Kind_Void) then
-         Print_Value (E, V, False, POk);
-         if not POk then
-            Put_Line ("error: could not print result");
+      if Status = No_Error then
+         if not (V.Kind = Kind_Unspecified or else V.Kind = Kind_Void) then
+            Print_Value (E, V, False, POk);
+            if not POk then
+               Put_Line ("error: could not print result");
+            end if;
          end if;
+         Emit_Line (Output_Text (E));
+         Reset_Output (E);
+      else
+         --  Evaluation stopped on an error, but whatever the program printed
+         --  before it did happen and must not be thrown away.
+         if Output_Text (E)'Length > 0 then
+            Emit_Line (Output_Text (E));
+            Reset_Output (E);
+         end if;
+         Put_Line ("error: " & Error_Name (Status));
       end if;
-      Emit_Line (Output_Text (E));
-      Reset_Output (E);
    end Show_Result;
 
    procedure Run_String (Source : String) is

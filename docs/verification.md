@@ -30,11 +30,23 @@ This is not a machine-checked proof of R7RS semantics.  In particular:
 TIMEOUT=5 ./scripts/prove.sh
 ```
 
-The script clears `obj/gnatprove`, runs GNATprove sequentially with the 16.1
-toolchain, and inspects the summary.  Exit code 0 alone is not trusted.
+The script clears `obj/gnatprove`, runs GNATprove 16.1 at level 4 with
+`--checks-as-errors` and `-j4`, then fails on *either* a non-zero exit code or
+a log containing `medium:`, `high:`, `unproved` or `failed`.  Exit code 0
+alone is not trusted.
+
+M0 result: 935 checks, 0 unproved, 0 justified, flow and initialization fully
+proved, build warning-free.
 
 ## Iteration policy
 
-Use a 5 second per-check timeout while bringing up a unit.  Increase it only
-for obligations that are known to need more time, and record why.  Prefer
+`TIMEOUT=5` (five seconds per check) is the default: fast enough to turn a
+whole-unit run around in a couple of minutes and strict enough to expose
+obligations that are structurally hard rather than merely slow.  Raise it only
+for an obligation already known to need more time, and record the measurement
+and the decision (redesign, or document) in `docs/findings.md`.  Prefer
 redesigning a contract or data structure over `Assume` or `Suppress`.
+
+There is no raised-timeout obligation in the accepted state: the multiplication
+exactness claim became provable at 5 s by choosing a product-safe fixnum range
+instead of asking the prover to reason about a wide multiply.

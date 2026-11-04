@@ -2,10 +2,7 @@ with Ada.Characters.Latin_1; use Ada.Characters.Latin_1;
 with Interfaces; use Interfaces;
 with Tr7.Cells; use Tr7.Cells;
 with Tr7.Config; use Tr7.Config;
-with Tr7.Heap; use Tr7.Heap;
 with Tr7.Pairs; use Tr7.Pairs;
-with Tr7.Runtime; use Tr7.Runtime;
-with Tr7.Values; use Tr7.Values;
 
 package body Tr7.Writer with
    SPARK_Mode => On
@@ -23,7 +20,7 @@ is
    end Put;
 
    procedure Put (B : in out Output_Buffer; S : String; Ok : in out Boolean)
-     with Pre => S'First >= 1
+     with Pre => S'First >= 1 and then S'Last < Natural'Last
    is
       Good : Boolean;
    begin
@@ -63,8 +60,11 @@ is
       end if;
 
       while Mag > 0 loop
-         pragma Loop_Invariant (Mag >= 0);
-         pragma Loop_Invariant (Len < Buf'Length);
+         pragma Loop_Invariant (Len <= Buf'Length);
+         if Len >= Buf'Length then
+            Ok := False;
+            return;
+         end if;
          D := Mag mod 10;
          Len := Len + 1;
          Buf (Len) := Character'Val (Character'Pos ('0') + Integer (D));

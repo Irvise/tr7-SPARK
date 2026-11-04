@@ -1,11 +1,7 @@
 with Tr7.Cells; use Tr7.Cells;
-with Tr7.Config; use Tr7.Config;
 with Tr7.Env; use Tr7.Env;
-with Tr7.Heap; use Tr7.Heap;
 with Tr7.Pairs; use Tr7.Pairs;
 with Tr7.Primitives; use Tr7.Primitives;
-with Tr7.Runtime; use Tr7.Runtime;
-with Tr7.Values; use Tr7.Values;
 
 package body Tr7.Machine with
    SPARK_Mode => On
@@ -39,7 +35,7 @@ is
        Post => (if Ok then M.Top = M.Top'Old + 1 else M.Top = M.Top'Old)
    is
    begin
-      if M.Top >= Max_Stack then
+      if M.Top = Max_Stack then
          Ok := False;
          return;
       end if;
@@ -78,7 +74,9 @@ is
       Args   : Value;
       Env    : Handle;
       Ok     : out Boolean)
-     with Pre => H.Ready
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
    is
       P : Value := Params;
       A : Value := Args;
@@ -89,6 +87,7 @@ is
    begin
       Ok := False;
       loop
+         pragma Loop_Invariant (H.Ready);
          if Is_Nil (P) then
             Ok := Is_Nil (A);
             return;
@@ -128,7 +127,9 @@ is
       Args : Value;
       M    : in out Machine;
       B    : in out Output_Buffer)
-     with Pre => H.Ready
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
    is
       C     : Cell;
       Valid : Boolean;
@@ -136,6 +137,7 @@ is
       Res   : Value;
       Arity : Natural;
       New_Env : Handle;
+      Prim_Status : Error_Code;
       Lambda_Body : Value;
       First : Value;
       Rest  : Value;
@@ -154,9 +156,9 @@ is
 
       case C.Kind is
          when Cell_Primitive =>
-            Call (H, C.Prim, Args, Res, B, Good);
-            if not Good then
-               Fail (M, Error_Type);
+            Call (H, C.Prim, Args, Res, B, Prim_Status);
+            if Prim_Status /= No_Error then
+               Fail (M, Prim_Status);
                return;
             end if;
             M.Result := Res;
@@ -218,7 +220,9 @@ is
    procedure Eval_Symbol
      (H : in out Heap_Type;
       M : in out Machine)
-     with Pre => H.Ready
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
    is
       Val : Value;
       Ok  : Boolean;
@@ -235,7 +239,9 @@ is
    procedure Eval_Pair
      (H : in out Heap_Type;
       M : in out Machine)
-     with Pre => H.Ready
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
    is
       Head : Value;
       Rest : Value;
@@ -449,11 +455,12 @@ is
    procedure Eval_Step
      (H : in out Heap_Type;
       M : in out Machine)
-     with Pre => H.Ready
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
    is
       C     : Cell;
       Valid : Boolean;
-      Good  : Boolean;
    begin
       if Is_Fixnum (M.Ctl)
         or else Is_Boolean (M.Ctl)
@@ -499,7 +506,9 @@ is
      (H : in out Heap_Type;
       M : in out Machine;
       B : in out Output_Buffer)
-     with Pre => H.Ready
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
    is
       F    : Frame;
       Good : Boolean;
@@ -507,7 +516,6 @@ is
       Proper   : Value;
       First    : Value;
       Rest     : Value;
-      New_Env  : Handle;
    begin
       if M.Top = 0 then
          M.Mode := Mode_Halt;
@@ -576,7 +584,10 @@ is
 
          when K_Operator =>
             if Is_Nil (F.Expr) then
-               Apply_Procedure (H, M.Result, Nil_Value, M, B);
+               --  Copy the operator out of M: SPARK forbids passing a
+               --  component of M together with M itself.
+               First := M.Result;
+               Apply_Procedure (H, First, Nil_Value, M, B);
             else
                Car_Of (H, F.Expr, First, Good);
                if not Good then
@@ -644,7 +655,9 @@ is
      (H : in out Heap_Type;
       M : in out Machine;
       B : in out Output_Buffer)
-     with Pre => H.Ready
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
    is
    begin
       if M.Mode = Mode_Eval then
@@ -661,6 +674,7 @@ is
       M      : in out Machine;
       B      : in out Output_Buffer)
    is
+      Steps : Natural := 0;
    begin
       M.Mode := Mode_Eval;
       M.Ctl := Expr;
@@ -668,16 +682,20 @@ is
       M.Top := 0;
       M.Result := Nil_Value;
       M.Error := No_Error;
-      M.Steps := 0;
 
+      --  The step counter is driver state, not machine state: no callee can
+      --  touch it, so the loop invariant needs no frame reasoning about the
+      --  machine record.
+      Steps := 0;
       while M.Mode /= Mode_Halt loop
-         pragma Loop_Invariant (M.Steps <= Max_Steps);
-         if M.Steps >= Max_Steps then
+         pragma Loop_Invariant (Steps <= Max_Steps);
+         pragma Loop_Invariant (H.Ready);
+         if Steps >= Max_Steps then
             M.Error := Error_Step_Limit;
             M.Mode := Mode_Halt;
          else
             Step (H, M, B);
-            M.Steps := M.Steps + 1;
+            Steps := Steps + 1;
          end if;
       end loop;
    end Evaluate;

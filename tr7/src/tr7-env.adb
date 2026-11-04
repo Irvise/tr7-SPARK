@@ -1,8 +1,6 @@
 with Tr7.Cells; use Tr7.Cells;
 with Tr7.Config; use Tr7.Config;
-with Tr7.Heap; use Tr7.Heap;
 with Tr7.Pairs; use Tr7.Pairs;
-with Tr7.Values; use Tr7.Values;
 
 package body Tr7.Env with
    SPARK_Mode => On
@@ -16,7 +14,6 @@ is
      with Pre => H.Ready
    is
    begin
-      C := (Kind => Cell_Free, others => <>);
       Fetch (H, Env, C, Ok);
       if Ok and then C.Kind /= Cell_Environment then
          Ok := False;
@@ -63,7 +60,8 @@ is
                return;
             end if;
 
-            if Is_Handle (Binding_Cell.Car)
+            if Is_Handle (Sym)
+              and then Is_Handle (Binding_Cell.Car)
               and then Same_Handle (To_Handle (Binding_Cell.Car), To_Handle (Sym))
             then
                Found := True;
@@ -83,7 +81,9 @@ is
       Sym  : Value;
       Val  : Value;
       Ok   : out Boolean)
-     with Pre => H.Ready
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
    is
       Cur : Value := List;
    begin
@@ -108,7 +108,8 @@ is
             if not Good or else Binding_Cell.Kind /= Cell_Pair then
                return;
             end if;
-            if Is_Handle (Binding_Cell.Car)
+            if Is_Handle (Sym)
+              and then Is_Handle (Binding_Cell.Car)
               and then Same_Handle (To_Handle (Binding_Cell.Car), To_Handle (Sym))
             then
                Set_Cdr (H, To_Handle (Node.Car), Val, Good);
@@ -166,7 +167,7 @@ is
          end if;
          Binding := From_Handle (Hd);
          Cons (H, Binding, E.Car, New_List, Valid);
-         if not Valid then
+         if not Valid or else Env.Index not in Valid_Cell_Index then
             return;
          end if;
          H.Cells (Valid_Cell_Index (Env.Index)).Car := New_List;
@@ -189,7 +190,7 @@ is
    begin
       Ok := False;
       for Depth in 0 .. Max_Env_Depth loop
-         pragma Loop_Invariant (Depth <= Max_Env_Depth);
+         pragma Loop_Invariant (H.Ready);
          Environment_Cell (H, Cur_Env, E, Valid);
          if not Valid then
             return;
@@ -225,7 +226,6 @@ is
       Val := Nil_Value;
       Ok := False;
       for Depth in 0 .. Max_Env_Depth loop
-         pragma Loop_Invariant (Depth <= Max_Env_Depth);
          Environment_Cell (H, Cur_Env, E, Valid);
          if not Valid then
             return;

@@ -1,22 +1,31 @@
 #!/bin/sh
 # Prove the verified core.  The core must be SPARK_Mode => On, level 4, with
-# zero unproved checks.  Exit code 0 alone is not trusted: the summary is
-# inspected for failures and unproved/justified checks.
+# zero unproved checks.  The exit code of gnatprove alone is not trusted: the
+# log is scanned as well, and either one failing is a failed run.
 set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 gnatprove=${GNATPROVE:-/home/fernando/bin/gnatprove-x86_64-linux-16.1.0-1/bin/gnatprove}
 timeout=${TIMEOUT:-5}
+log=/tmp/tr7-prove.log
 
 cd "$root/tr7"
 rm -rf obj/gnatprove
+
+status=0
 "$gnatprove" -P tr7.gpr \
    --level=4 \
    --checks-as-errors=on \
    --timeout="$timeout" \
-   -j1 2>&1 | tee /tmp/tr7-prove.log
+   -j4 > "$log" 2>&1 || status=$?
+cat "$log"
 
-if grep -E "(medium:|high:|unproved|failed)" /tmp/tr7-prove.log >/dev/null; then
-   echo "prove: FAILED (see /tmp/tr7-prove.log)" >&2
+if [ "$status" -ne 0 ]; then
+   echo "prove: FAILED (gnatprove exit $status, see $log)" >&2
+   exit 1
+fi
+
+if grep -E "(medium:|high:|unproved|failed)" "$log" >/dev/null; then
+   echo "prove: FAILED (see $log)" >&2
    exit 1
 fi
 

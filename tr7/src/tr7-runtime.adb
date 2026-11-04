@@ -32,6 +32,8 @@ is
       for I in 1 .. S'Length loop
          pragma Loop_Invariant (B.Len = B.Len'Loop_Entry + (I - 1));
          pragma Loop_Invariant (B.Len <= Max_Output);
+         pragma Loop_Invariant (Pos = S'First + (I - 1));
+         pragma Loop_Invariant (Pos <= S'Last);
          B.Len := B.Len + 1;
          B.Data (B.Len) := S (Pos);
          Pos := Pos + 1;
@@ -60,6 +62,8 @@ is
          when Error_Step_Limit      => return "step limit exceeded";
          when Error_Malformed       => return "malformed expression";
          when Error_EOF             => return "end of input";
+         when Error_Overflow        => return "exact integer overflow";
+         when Error_Output_Full     => return "output buffer full";
       end case;
    end Error_Name;
 

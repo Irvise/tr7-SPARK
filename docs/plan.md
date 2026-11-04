@@ -1,5 +1,16 @@
 # TR7-SPARK plan
 
+## Current status
+
+M0 is functionally complete: the `tr7` library builds, the `tr7i` REPL and
+script runner evaluate the walking-skeleton forms, four smoke suites pass
+(literals/forms, primitives, arithmetic overflow, arity errors), and GNATprove
+at level 4 with a 5 second per-check timeout is the active gate.
+
+Design decisions taken while proving M0 are recorded in `docs/findings.md`;
+the two that shape the code are the product-safe fixnum range
+(`-(2**31) .. 2**31 - 1`) and the single engine readiness flag (`E.H.Ready`).
+
 ## Goal
 
 A small, dependency-free Ada 2012/SPARK implementation of a core R7RS-small
@@ -85,8 +96,10 @@ not declared as a crate dependency, so `alr build` requires only GNAT and GPR.
 - Environments: association-list frames with a parent handle.
 - Ports: string ports in `tr7`; `tr7i` loads files into strings and prints
   output. The verified core never touches the OS.
-- Numbers: 62-bit fixnum + double. Pure Ada `sqrt` and `expt`; pure Ada
-  `%g`-style formatting. No `libm` dependency in the core.
+- Numbers: fixnum in `-(2**31) .. 2**31 - 1` plus double, chosen so that
+  products fit in `Integer_64` and their exactness proves at the 5 s timeout
+  (R7RS only requires the index range; see `docs/findings.md`). Pure Ada
+  `sqrt` and `expt`; pure Ada `%g`-style formatting. No `libm` dependency.
 - Reader/writer: bounded buffers, clear error positions, depth/visited limits.
 - Primitives dispatch through an enum + `case`, avoiding `'Access` tables.
 
@@ -108,9 +121,9 @@ not declared as a crate dependency, so `alr build` requires only GNAT and GPR.
   unproved/justified checks, zero `Assume`/`Annotate`/`Suppress`.
 - GC safety proved first; reachability/liveness (`marked = reachable`) is the
   main M5 proof goal. Stress-GC mode collects at every allocation.
-- `scripts/prove.sh` clears `obj/gnatprove`, runs sequentially and greps the
-  summary for `medium:`/`high:`/`unproved`/`failed`; exit code 0 alone is not
-  trusted.
+- `scripts/prove.sh` clears `obj/gnatprove`, runs with `--timeout=5 -j4` and
+  greps the summary for `medium:`/`high:`/`unproved`/`failed`; exit code 0
+  alone is not trusted.  Never overlap two runs on the same `obj` directory.
 
 ## Milestones
 
@@ -132,9 +145,34 @@ and tests.
   invariants.
 - Avoid nonlinear arithmetic in contracts.
 - Measure proof time cold; clear `obj/gnatprove` before per-unit runs.
-- Run GNATprove sequentially; a syntax error in any unit poisons all runs.
+- One GNATprove run at a time per object directory (`-j4` inside it is fine);
+  a syntax error in any unit poisons all runs.
 - Never hide real checks with `Suppress`; remove unproved obligations by design.
 - Keep `SPARK_Mode Off` bodies scoped and documented.
 - Never pass a record and one of its own fields to the same subprogram.
 - Fully initialize `out` parameters.
 - Prefer expression functions when preconditions mention them.
+
+## M1 breakdown (next)
+
+Concrete order, each step keeping the proof and the four suites green:
+
+1. **GC skeleton** -- explicit root list (machine state, global environment,
+   symbol cells, in-flight reader/writer temporaries), mark phase over the
+   arena, sweep into the free list, and a `Stress_GC` mode that collects at
+   every allocation so the suites exercise it continuously.  Contracts: roots
+   are valid handles, mark stack stays in bounds, `Ready` survives collection,
+   sweeping never drops a marked cell.
+2. **Derived binding forms** -- `let`, `let*`, `letrec`, `cond`, `case`, `and`,
+   `or`, `when`, `unless`, `do`, desugared in the evaluator or expanded by the
+   reader, whichever keeps `tr7-machine.adb` small enough to prove.
+3. **Strings and vectors** -- `string-length`, `string-ref`, `string-append`,
+   `substring`, `string=?`, vectors and bytevectors as chunked cells with
+   bounded accessors; the reader gains `#\x` hex escapes and `#(...)`.
+4. **More primitives** -- `apply`, `map`, `for-each`, `append`, `reverse`,
+   `list-ref`, `assq`/`memq`, predicates on strings/vectors/ports.
+5. **Numeric tower step 1** -- `expt`, `quotient`/`remainder`/`modulo`,
+   `abs`, `min`/`max`, flonums (`+.`/`exact->inexact`) with the pure-Ada
+   formatting already planned.
+
+Each step ends with: build, four suites, `scripts/prove.sh`, commit.
