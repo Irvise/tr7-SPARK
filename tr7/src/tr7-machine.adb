@@ -69,6 +69,37 @@ is
       M.Mode := Mode_Halt;
    end Fail;
 
+   --  True when a validated parameter list ends in the symbol that collects
+   --  the rest of the arguments; used at call time to choose between exact
+   --  and rest arity.
+   function Has_Rest (H : Heap_Type; Params : Value) return Boolean
+     with Pre => H.Ready
+   is
+      Cur   : Value := Params;
+      Node  : Cell;
+      Good  : Boolean;
+      --  Functions are implicitly Always_Terminates in SPARK, so this walk is
+      --  bounded: Param_Fixed_Length rejected any parameter list longer than
+      --  Max_List_Length at closure creation, which makes the bound -- and the
+      --  variant below -- reachable only for a list that cannot exist.
+      Steps : Natural range 0 .. Max_List_Length := 0;
+   begin
+      while Is_Handle (Cur) loop
+         pragma Loop_Variant (Decreases => Max_List_Length - Steps);
+         exit when Steps = Max_List_Length;
+         Fetch (H, To_Handle (Cur), Node, Good);
+         if not Good then
+            return False;
+         end if;
+         if Node.Kind /= Cell_Pair then
+            return Node.Kind = Cell_Symbol;
+         end if;
+         Cur := Node.Cdr;
+         Steps := Steps + 1;
+      end loop;
+      return False;
+   end Has_Rest;
+
    procedure Bind_Params
      (H      : in out Heap_Type;
       Params : Value;
@@ -79,12 +110,13 @@ is
        Pre  => H.Ready,
        Post => H.Ready
    is
-      P : Value := Params;
-      A : Value := Args;
-      Sym : Value;
-      Val : Value;
-      Next : Value;
-      Good : Boolean;
+      P     : Value := Params;
+      A     : Value := Args;
+      Sym   : Value;
+      Val   : Value;
+      Next  : Value;
+      PC    : Cell;
+      Good  : Boolean;
    begin
       Ok := False;
       loop
@@ -93,12 +125,31 @@ is
             Ok := Is_Nil (A);
             return;
          end if;
+         if not Is_Handle (P) then
+            return;
+         end if;
+
+         Fetch (H, To_Handle (P), PC, Good);
+         if not Good then
+            return;
+         end if;
+
+         --  The rest parameter comes first: it may collect nothing at all,
+         --  which is why this is checked before the "no arguments left" case.
+         if PC.Kind = Cell_Symbol then
+            Tr7.Env.Define (H, Env, P, A, Good);
+            Ok := Good;
+            return;
+         end if;
+         if PC.Kind /= Cell_Pair then
+            return;
+         end if;
          if Is_Nil (A) then
             return;
          end if;
 
-         Car_Of (H, P, Sym, Good);
-         if not Good or else not Is_Handle (Sym) then
+         Sym := PC.Car;
+         if not Is_Handle (Sym) then
             return;
          end if;
          Car_Of (H, A, Val, Good);
@@ -109,10 +160,8 @@ is
          if not Good then
             return;
          end if;
-         Cdr_Of (H, P, Next, Good);
-         if not Good then
-            return;
-         end if;
+
+         Next := PC.Cdr;
          P := Next;
          Cdr_Of (H, A, Next, Good);
          if not Good then
@@ -167,7 +216,16 @@ is
 
          when Cell_Closure =>
             Length (H, Args, Arity, Good);
-            if not Good or else Arity /= C.Arity then
+            if not Good then
+               Fail (M, Error_Malformed);
+               return;
+            end if;
+            if Has_Rest (H, C.Car) then
+               if Arity < C.Arity then
+                  Fail (M, Error_Wrong_Arity);
+                  return;
+               end if;
+            elsif Arity /= C.Arity then
                Fail (M, Error_Wrong_Arity);
                return;
             end if;
@@ -251,6 +309,67 @@ is
       M.Result := Val;
       M.Mode := Mode_Return;
    end Eval_Symbol;
+
+   --  Count a lambda's fixed parameters: the leading pairs of the parameter
+   --  list, which must all be symbols, ending either at the empty list or at
+   --  the one symbol that collects the rest of the arguments.  Length cannot
+   --  do this job because it rejects the dotted list `(a . rest)` itself.
+   procedure Param_Fixed_Length
+     (H      : Heap_Type;
+      Params : Value;
+      N      : out Natural;
+      Ok     : out Boolean)
+     with
+       Pre  => H.Ready,
+       Post => (if Ok then N <= Max_List_Length)
+   is
+      Cur   : Value := Params;
+      Node  : Cell;
+      Param : Cell;
+      Count : Natural := 0;
+      Good  : Boolean;
+   begin
+      N := 0;
+      Ok := False;
+      loop
+         pragma Loop_Invariant (H.Ready);
+         pragma Loop_Invariant (Count <= Max_List_Length);
+         if Is_Nil (Cur) then
+            N := Count;
+            Ok := True;
+            return;
+         end if;
+         if not Is_Handle (Cur) then
+            return;
+         end if;
+         Fetch (H, To_Handle (Cur), Node, Good);
+         if not Good then
+            return;
+         end if;
+         if Node.Kind /= Cell_Pair then
+            --  The tail: either the rest parameter, or a malformed list.
+            if Node.Kind = Cell_Symbol then
+               N := Count;
+               Ok := True;
+            end if;
+            return;
+         end if;
+
+         if not Is_Handle (Node.Car) then
+            return;
+         end if;
+         Fetch (H, To_Handle (Node.Car), Param, Good);
+         if not Good or else Param.Kind /= Cell_Symbol then
+            return;
+         end if;
+         if Count >= Max_List_Length then
+            return;
+         end if;
+         Count := Count + 1;
+         Cur := Node.Cdr;
+      end loop;
+   end Param_Fixed_Length;
+
 
    --  Enter the first form of a body in Env.  A sequence frame is pushed only
    --  when further forms follow: the last form is in tail position, so its
@@ -697,7 +816,7 @@ is
             Fail (M, Error_Malformed);
             return;
          end if;
-         Length (H, Params, Arity, Good);
+         Param_Fixed_Length (H, Params, Arity, Good);
          if not Good then
             Fail (M, Error_Malformed);
             return;
@@ -714,10 +833,78 @@ is
 
       if Is_Symbol_Named (H, Head, "define") then
          Cadr_Of (H, M.Ctl, Name, Good);
-         if not Good or else not Is_Handle (Name) then
+         if not Good then
             Fail (M, Error_Malformed);
             return;
          end if;
+         if not Is_Handle (Name) then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+
+         declare
+            Sig  : Cell;
+            PN   : Cell;
+            Sig_Ok : Boolean;
+         begin
+            Fetch (H, To_Handle (Name), Sig, Sig_Ok);
+            if not Sig_Ok then
+               Fail (M, Error_Malformed);
+               return;
+            end if;
+
+            if Sig.Kind = Cell_Pair then
+               --  (define (f x ...) body ...): name, parameters and body come
+               --  apart here and the closure is built directly, so no `lambda`
+               --  symbol has to exist in the environment.
+               Tmp := Sig.Car;
+               if not Is_Handle (Tmp) then
+                  Fail (M, Error_Malformed);
+                  return;
+               end if;
+               Fetch (H, To_Handle (Tmp), PN, Sig_Ok);
+               if not Sig_Ok or else PN.Kind /= Cell_Symbol then
+                  Fail (M, Error_Malformed);
+                  return;
+               end if;
+
+               Params := Sig.Cdr;
+               Cddr_Of (H, M.Ctl, Forms, Good);
+               if not Good then
+                  Fail (M, Error_Malformed);
+                  return;
+               end if;
+               Param_Fixed_Length (H, Params, Arity, Good);
+               if not Good then
+                  Fail (M, Error_Malformed);
+                  return;
+               end if;
+               New_Closure (H, Params, Forms, M.Env, Arity, Hd, Good);
+               if not Good then
+                  Fail (M, Error_Heap_Full);
+                  return;
+               end if;
+
+               F := (Kind => K_Define,
+                     Sym  => Tmp,
+                     Env  => M.Env,
+                     others => <>);
+               Push (M, F, Good);
+               if not Good then
+                  Fail (M, Error_Step_Limit);
+                  return;
+               end if;
+               M.Result := From_Handle (Hd);
+               M.Mode := Mode_Return;
+               return;
+            end if;
+
+            if Sig.Kind /= Cell_Symbol then
+               Fail (M, Error_Malformed);
+               return;
+            end if;
+         end;
+
          Caddr_Of (H, M.Ctl, Expr_V, Good);
          if not Good then
             Fail (M, Error_Malformed);

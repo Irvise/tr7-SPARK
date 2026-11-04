@@ -170,7 +170,15 @@ Concrete order, each step keeping the proof and the suites green.
    calls were leaking a pass-through frame per call, and `-gnata` was evaluating
    quantified loop invariants at run time (8.4 ms per collection instead of
    5 us).  Both are fixed; see `docs/findings.md`.
-2. **Derived binding forms** -- `let`, `let*`, `letrec`, `and`, `or` are in
+2. **Derived binding forms** -- rest arguments (`(lambda (a . rest))`) and
+   the `(define (f x) ...)` shorthand are in: parameter shape is validated and
+   counted once at closure creation (`Param_Fixed_Length`), rest-ness is
+   re-derived at call time, and `Bind_Params` binds the tail list -- after the
+   rest case, so `(f)` still works for `(f . xs)`.  Note for the record:
+   recursive rest-argument functions need `apply` (step 4b), because
+   `(f (cdr xs))` passes the tail as *one* argument; the suites use proper
+   lists where recursion is wanted.  The rest of the step: `let`, `let*`,
+   `letrec`, `and`, `or` are in
    (`tests/forms.scm`: parallel binding swaps, sequential rebinding, mutual
    `letrec` recursion, short-circuit side effects), so are `cond` (with `=>`
    and `else`, `tests/cond.scm`), `when`, `unless`, and `case`
