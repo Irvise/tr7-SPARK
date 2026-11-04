@@ -38,7 +38,11 @@ is
       K_When,
       K_Unless,
       --  case: the key has been evaluated and the clauses are waiting.
-      K_Case);
+      K_Case,
+      --  map / for-each: waiting for the procedure called on the current
+      --  heads; the accumulated results ride in Expr and the map/for-each
+      --  choice in Alt.
+      K_Map);
 
    type Frame is record
       Kind : Frame_Kind := K_If;

@@ -200,10 +200,12 @@ Concrete order, each step keeping the proof and the suites green.
    arrived with step 3; `apply` is in as an evaluator form (`tests/apply.scm`)
    -- it reuses the operator/argument frames, carrying the "spread the last
    argument" marker in the frame's unused Sym, and validates the spread with
-   `Length` so a non-list tail is a type error.  Still to come: `map` and
-   `for-each`, which *call* Scheme procedures over a variadic list of lists,
-   so they are evaluator forms rather than primitives; and ports with the OS
-   boundary in `tr7i`.
+   `Length` so a non-list tail is a type error.  `map` and `for-each` are
+   evaluator forms for the same reason -- they call a closure per element over
+   a variadic list of lists (`tests/map.scm`): K_Operator/K_Argument evaluate
+   the operands, K_Map carries one round, and `Map_Next` owns "finished, or
+   push and call" so the entry and the continuation cannot drift.  Still to
+   come in step 4: ports with the OS boundary in `tr7i`.
 5. **Numeric tower step 1** -- the integer half is in: `abs`, `min`, `max`,
    `quotient`, `remainder`, `modulo` and `expt` (`tests/numbers.scm`,
    `tests/numovf.scm`), each overflow or zero-divisor path guarded and named.

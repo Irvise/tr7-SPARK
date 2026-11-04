@@ -119,6 +119,13 @@ Consequences:
   with `pragma Unreferenced` earns a second warning.  The way out is to change
   the shape of the interface so that every caller uses it (see the environment
   note in `docs/architecture.md`).
+- GNATprove rejects a conditional expression *inside* an aggregate
+  (`cannot untangle node N_IF_EXPRESSION`): build the record first, then
+  assign the conditional field.
+- A function is implicitly `Always_Terminates` in SPARK, a procedure is not,
+  so a cursor walk inside a function needs a `Loop_Variant` -- a bounded
+  counter with `Decreases => Bound - Steps` is the shape that proved here --
+  while the identical walk in a procedure needs neither.
 - Loop invariants that the construct already implies -- `for I in 0 .. N`
   giving `I <= N`, `while Mag > 0` giving `Mag >= 0`, a counter nothing
   decrements -- draw `condition is always True` warnings: delete them.

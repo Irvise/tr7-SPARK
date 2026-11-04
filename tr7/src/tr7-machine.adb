@@ -719,6 +719,149 @@ is
       end loop;
    end Start_Case;
 
+   --  Collect one element -- the car or the cdr -- from each list of a list of
+   --  lists, reversed: both the next call's arguments and the next round's
+   --  tails need it, and reversing is what turns it into order.
+   procedure Map_Elements
+     (H        : in out Heap_Type;
+      Lists    : Value;
+      Take_Car : Boolean;
+      Reversed : out Value;
+      Ok       : out Boolean)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Cur  : Value := Lists;
+      Acc  : Value := Nil_Value;
+      L    : Value;
+      Elem    : Value;
+      Rest    : Value;
+      New_Acc : Value;
+      Good    : Boolean;
+   begin
+      Reversed := Nil_Value;
+      Ok := False;
+      loop
+         pragma Loop_Invariant (H.Ready);
+         exit when Is_Nil (Cur);
+         if not Is_Handle (Cur) then
+            return;
+         end if;
+         Car_Of (H, Cur, L, Good);
+         if not Good then
+            return;
+         end if;
+         if not Is_Handle (L) then
+            return;
+         end if;
+         if Take_Car then
+            Car_Of (H, L, Elem, Good);
+         else
+            Cdr_Of (H, L, Elem, Good);
+         end if;
+         if not Good then
+            return;
+         end if;
+
+         Cons (H, Elem, Acc, New_Acc, Good);
+         if not Good then
+            return;
+         end if;
+         Acc := New_Acc;
+
+         Cdr_Of (H, Cur, Rest, Good);
+         if not Good then
+            return;
+         end if;
+         Cur := Rest;
+      end loop;
+
+      Reversed := Acc;
+      Ok := True;
+   end Map_Elements;
+
+   --  Continue one round of map/for-each: State carries the procedure (Func),
+   --  the lists (Args), the reversed results (Expr) and the choice in Alt.
+   --  Pushing the state and starting the call, or finishing, all happen here
+   --  so the entry point and the continuation cannot drift apart.
+   procedure Map_Next
+     (H     : in out Heap_Type;
+      M     : in out Machine;
+      B     : in out Output_Buffer;
+      State : Frame)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Cur    : Value := State.Args;
+      L      : Value;
+      Rest   : Value;
+      Heads  : Value;
+      Temp   : Value;
+      Proc   : Value;
+      Good   : Boolean;
+      Empty  : Boolean := False;
+      Is_Map : constant Boolean :=
+        State.Alt.Kind = Kind_Boolean and then State.Alt.B;
+   begin
+      --  Any list running out finishes the round.
+      while not Is_Nil (Cur) loop
+         Car_Of (H, Cur, L, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         if Is_Nil (L) then
+            Empty := True;
+            exit;
+         end if;
+         Cdr_Of (H, Cur, Rest, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Cur := Rest;
+      end loop;
+
+      if Empty then
+         if Is_Map then
+            Reverse_List (H, State.Expr, M.Result, Good);
+            if not Good then
+               Fail (M, Error_Malformed);
+               return;
+            end if;
+         else
+            --  for-each is for effect only.
+            M.Result := Unspecified_Value;
+         end if;
+         M.Mode := Mode_Return;
+         return;
+      end if;
+
+      --  Build the heads before pushing, so a full heap leaves no frame.
+      Map_Elements (H, State.Args, True, Temp, Good);
+      if not Good then
+         Fail (M, Error_Heap_Full);
+         return;
+      end if;
+      Reverse_List (H, Temp, Heads, Good);
+      if not Good then
+         Fail (M, Error_Malformed);
+         return;
+      end if;
+
+      --  The state goes on the stack so the procedure's value comes back to
+      --  it, then the call starts.
+      Push (M, State, Good);
+      if not Good then
+         Fail (M, Error_Step_Limit);
+         return;
+      end if;
+      Proc := State.Func;
+      Apply_Procedure (H, Proc, Heads, M, B);
+   end Map_Next;
+
    procedure Eval_Pair
      (H : in out Heap_Type;
       M : in out Machine)
@@ -1104,6 +1247,60 @@ is
          return;
       end if;
 
+      if Is_Symbol_Named (H, Head, "map")
+        or else Is_Symbol_Named (H, Head, "for-each")
+      then
+         --  (map proc list ...): the operands are evaluated like an
+         --  application's; Sym marks the family (apply shares that field with
+         --  its own value) and Alt carries the map/for-each choice forward.
+         Cdr_Of (H, M.Ctl, Rest, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         if Is_Nil (Rest) then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Car_Of (H, Rest, Tmp, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Cdr_Of (H, Rest, Tail2, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         if Is_Nil (Tail2) then
+            --  (map f) has no list to walk.
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+
+         --  Alt carries the choice: True collects (map), False discards
+         --  (for-each).  It is set after the aggregate because GNATprove
+         --  cannot untangle a conditional expression inside one.
+         F := (Kind => K_Operator,
+               Expr => Tail2,
+               Env  => M.Env,
+               Sym  => False_Value,
+               others => <>);
+         if Is_Symbol_Named (H, Head, "map") then
+            F.Alt := True_Value;
+         else
+            F.Alt := False_Value;
+         end if;
+         Push (M, F, Good);
+         if not Good then
+            Fail (M, Error_Step_Limit);
+            return;
+         end if;
+         M.Ctl := Tmp;
+         M.Mode := Mode_Eval;
+         return;
+      end if;
+
       if Is_Symbol_Named (H, Head, "apply") then
          --  (apply proc arg ... last-list): the operands are walked like an
          --  application, but the final one is spread instead of passed.  The
@@ -1388,6 +1585,31 @@ is
             M.Env := F.Env;
             M.Mode := Mode_Eval;
 
+         when K_Map =>
+            --  The call for this round has just returned its value: keep it
+            --  (map), then advance every list to its tail and continue.
+            if F.Alt.Kind = Kind_Boolean and then F.Alt.B then
+               Cons (H, M.Result, F.Expr, New_Args, Good);
+               if not Good then
+                  Fail (M, Error_Heap_Full);
+                  return;
+               end if;
+               F.Expr := New_Args;
+            end if;
+
+            Map_Elements (H, F.Args, False, Acc, Good);
+            if not Good then
+               Fail (M, Error_Heap_Full);
+               return;
+            end if;
+            Reverse_List (H, Acc, Proper, Good);
+            if not Good then
+               Fail (M, Error_Malformed);
+               return;
+            end if;
+            F.Args := Proper;
+            Map_Next (H, M, B, F);
+
          when K_Case =>
             --  The key is copied out of M first: SPARK forbids passing a
             --  component of M together with M itself.
@@ -1565,6 +1787,32 @@ is
 
                First := Acc;
                Apply_Procedure (H, F.Func, First, M, B);
+               return;
+            end if;
+
+            if Is_Nil (F.Expr)
+              and then F.Sym.Kind = Kind_Boolean
+              and then not F.Sym.B
+            then
+               --  map / for-each: the value just returned is the *last* list,
+               --  so it is accumulated exactly as in an application and the
+               --  rounds start from the complete list of lists.  (apply, whose
+               --  marker is the other boolean, must not do this: its final
+               --  operand is spread, not passed.)
+               Cons (H, M.Result, F.Args, New_Args, Good);
+               if not Good then
+                  Fail (M, Error_Heap_Full);
+                  return;
+               end if;
+               Reverse_List (H, New_Args, Proper, Good);
+               if not Good then
+                  Fail (M, Error_Malformed);
+                  return;
+               end if;
+               F.Kind := K_Map;
+               F.Args := Proper;
+               F.Expr := Nil_Value;
+               Map_Next (H, M, B, F);
                return;
             end if;
 

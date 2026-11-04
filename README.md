@@ -44,10 +44,11 @@ and `expt` on fixnums, with overflow and zero divisors reported by name
 Lambdas take rest arguments (`(lambda (a . rest))`) and `define` accepts the
 `(define (f x) ...)` shorthand (`tests/defs.scm`).
 
-`apply` is in as an evaluator form (`tests/apply.scm`).
+`apply`, `map` and `for-each` are evaluator forms (`tests/apply.scm`,
+`tests/map.scm`).
 
-Not yet present: `do`, `quasiquote`, flonums, `map`/`for-each`, `call/cc`,
-ports beyond strings, the C ABI body, and `syntax-rules`.
+Not yet present: `do`, `quasiquote`, flonums, `call/cc`, ports beyond strings,
+the C ABI body, and `syntax-rules`.
 
 ## Build
 
