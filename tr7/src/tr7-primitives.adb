@@ -9,6 +9,7 @@ package body Tr7.Primitives with
    SPARK_Mode => On
 is
 
+
    subtype Fixnum is Integer_64 range Fixnum_Min .. Fixnum_Max;
 
    function Name_Of (P : Primitive_Id) return String is
@@ -34,6 +35,7 @@ is
          when P_Display         => return "display";
          when P_Newline         => return "newline";
          when P_Write           => return "write";
+         when P_Free_Cells      => return "free-cells";
       end case;
    end Name_Of;
 
@@ -78,13 +80,11 @@ is
    end Check_Arity;
 
    procedure Add
-     (H      : in out Heap_Type;
+     (H      : Heap_Type;
       Args   : Value;
       Result : out Value;
       Status : out Error_Code)
-     with
-       Pre  => H.Ready,
-       Post => H.Ready
+     with Pre => H.Ready
    is
       Arr  : Value_Array;
       Len  : Natural;
@@ -126,13 +126,11 @@ is
    end Add;
 
    procedure Sub
-     (H      : in out Heap_Type;
+     (H      : Heap_Type;
       Args   : Value;
       Result : out Value;
       Status : out Error_Code)
-     with
-       Pre  => H.Ready,
-       Post => H.Ready
+     with Pre => H.Ready
    is
       Arr  : Value_Array;
       Len  : Natural;
@@ -216,13 +214,11 @@ is
    end Mul_Fixnum;
 
    procedure Mul
-     (H      : in out Heap_Type;
+     (H      : Heap_Type;
       Args   : Value;
       Result : out Value;
       Status : out Error_Code)
-     with
-       Pre  => H.Ready,
-       Post => H.Ready
+     with Pre => H.Ready
    is
       Arr  : Value_Array;
       Len  : Natural;
@@ -257,14 +253,12 @@ is
    end Mul;
 
    procedure Compare_Chain
-     (H       : in out Heap_Type;
+     (H       : Heap_Type;
       Args    : Value;
       Mode    : Primitive_Id;
       Result  : out Value;
       Status : out Error_Code)
-     with
-       Pre  => H.Ready,
-       Post => H.Ready
+     with Pre => H.Ready
    is
       Arr  : Value_Array;
       Len  : Natural;
@@ -347,13 +341,11 @@ is
    end Cons_Prim;
 
    procedure Car_Prim
-     (H      : in out Heap_Type;
+     (H      : Heap_Type;
       Args   : Value;
       Result : out Value;
       Status : out Error_Code)
-     with
-       Pre  => H.Ready,
-       Post => H.Ready
+     with Pre => H.Ready
    is
       Arr  : Value_Array;
       Len  : Natural;
@@ -375,13 +367,11 @@ is
    end Car_Prim;
 
    procedure Cdr_Prim
-     (H      : in out Heap_Type;
+     (H      : Heap_Type;
       Args   : Value;
       Result : out Value;
       Status : out Error_Code)
-     with
-       Pre  => H.Ready,
-       Post => H.Ready
+     with Pre => H.Ready
    is
       Arr  : Value_Array;
       Len  : Natural;
@@ -452,13 +442,11 @@ is
    end List_Prim;
 
    procedure Eq_Prim
-     (H      : in out Heap_Type;
+     (H      : Heap_Type;
       Args   : Value;
       Result : out Value;
       Status : out Error_Code)
-     with
-       Pre  => H.Ready,
-       Post => H.Ready
+     with Pre => H.Ready
    is
       Arr  : Value_Array;
       Len  : Natural;
@@ -501,14 +489,12 @@ is
    end Eq_Prim;
 
    procedure Predicate
-     (H      : in out Heap_Type;
+     (H      : Heap_Type;
       Args   : Value;
       P      : Primitive_Id;
       Result : out Value;
       Status : out Error_Code)
-     with
-       Pre  => H.Ready,
-       Post => H.Ready
+     with Pre => H.Ready
    is
       Arr  : Value_Array;
       Len  : Natural;
@@ -549,15 +535,13 @@ is
    end Predicate;
 
    procedure Display_Prim
-     (H      : in out Heap_Type;
+     (H      : Heap_Type;
       Args   : Value;
       Display : Boolean;
       Result : out Value;
       B      : in out Output_Buffer;
       Status : out Error_Code)
-     with
-       Pre  => H.Ready,
-       Post => H.Ready
+     with Pre => H.Ready
    is
       Arr  : Value_Array;
       Len  : Natural;
@@ -589,7 +573,6 @@ is
       Status : out Error_Code)
    is
       Good : Boolean;
-      Arr  : Value_Array;
       Len  : Natural;
    begin
       Result := Void_Value;
@@ -635,7 +618,7 @@ is
             Display_Prim (H, Args, False, Result, B, Status);
 
          when P_Newline =>
-            Args_Of (H, Args, Arr, Len, Good);
+            Length (H, Args, Len, Good);
             if not Good then
                return;
             end if;
@@ -647,6 +630,19 @@ is
             Put_Char (B, LF, Good);
             Result := Unspecified_Value;
             Status := (if Good then No_Error else Error_Output_Full);
+
+         when P_Free_Cells =>
+            Length (H, Args, Len, Good);
+            if not Good then
+               return;
+            end if;
+            Check_Arity (Len, 0, 0, Good);
+            if not Good then
+               Status := Error_Wrong_Arity;
+               return;
+            end if;
+            Result := From_Fixnum (Integer_64 (H.Free_Count));
+            Status := No_Error;
 
          when P_None =>
             return;

@@ -8,6 +8,10 @@ gnatprove=${GNATPROVE:-/home/fernando/bin/gnatprove-x86_64-linux-16.1.0-1/bin/gn
 timeout=${TIMEOUT:-5}
 log=/tmp/tr7-prove.log
 
+#  -gnatp (TR7_CHECKS=off) makes GNATprove skip the corresponding obligations,
+#  so a proof run must always be in the checked configuration.
+export TR7_CHECKS=on
+
 cd "$root/tr7"
 rm -rf obj/gnatprove
 

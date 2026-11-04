@@ -8,6 +8,7 @@ package body Tr7.Writer with
    SPARK_Mode => On
 is
 
+
    procedure Put (B : in out Output_Buffer; C : Character; Ok : in out Boolean)
    is
       Good : Boolean;

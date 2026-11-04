@@ -7,6 +7,7 @@ package body Tr7.Machine with
    SPARK_Mode => On
 is
 
+
    function Is_Symbol_Named
      (H    : Heap_Type;
       V    : Value;
@@ -192,9 +193,24 @@ is
             end if;
 
             Car_Of (H, Lambda_Body, First, Good);
+            if not Good then
+               Fail (M, Error_Malformed);
+               return;
+            end if;
             Cdr_Of (H, Lambda_Body, Rest, Good);
             if not Good then
                Fail (M, Error_Malformed);
+               return;
+            end if;
+
+            if Is_Nil (Rest) then
+               --  Single-form body: the form is in tail position, so no frame
+               --  is pushed and recursion runs in constant stack space.  The
+               --  value it produces is delivered straight to the caller's
+               --  frame, which is exactly what the pass-through frame did.
+               M.Ctl := First;
+               M.Env := New_Env;
+               M.Mode := Mode_Eval;
                return;
             end if;
 
@@ -218,11 +234,11 @@ is
    end Apply_Procedure;
 
    procedure Eval_Symbol
-     (H : in out Heap_Type;
+     (H : Heap_Type;
       M : in out Machine)
-     with
-       Pre  => H.Ready,
-       Post => H.Ready
+     --  H is read-only here, so there is nothing to restore and no post is
+     --  needed: the caller keeps every fact it had about the heap.
+     with Pre => H.Ready
    is
       Val : Value;
       Ok  : Boolean;
@@ -553,15 +569,23 @@ is
                   Fail (M, Error_Malformed);
                   return;
                end if;
-               F.Expr := Rest;
-               Push (M, F, Good);
-               if not Good then
-                  Fail (M, Error_Step_Limit);
-                  return;
+               if Is_Nil (Rest) then
+                  --  Last form: tail position, so the pass-through frame is
+                  --  skipped and the value goes straight to the parent frame.
+                  M.Ctl := First;
+                  M.Env := F.Env;
+                  M.Mode := Mode_Eval;
+               else
+                  F.Expr := Rest;
+                  Push (M, F, Good);
+                  if not Good then
+                     Fail (M, Error_Step_Limit);
+                     return;
+                  end if;
+                  M.Ctl := First;
+                  M.Env := F.Env;
+                  M.Mode := Mode_Eval;
                end if;
-               M.Ctl := First;
-               M.Env := F.Env;
-               M.Mode := Mode_Eval;
             end if;
 
          when K_Define =>
@@ -667,6 +691,37 @@ is
       end if;
    end Step;
 
+   procedure Collect_Garbage
+     (H   : in out Heap_Type;
+      Env : Handle;
+      M   : Machine)
+   is
+   begin
+      --  The CEK state is a complete root set between steps: control, the
+      --  value being delivered, the current environment and every frame on
+      --  the continuation stack.
+      Mark_Root (H, M.Ctl);
+      Mark_Root (H, M.Result);
+      Mark_Root (H, From_Handle (Env));
+      Mark_Root (H, From_Handle (M.Env));
+
+      for I in 1 .. M.Top loop
+         pragma Loop_Invariant (H.Ready);
+         pragma Loop_Invariant (I <= M.Top);
+         --  Rooting never touches the free list, so the free cells counted on
+         --  entry are still there for Collect to report on.
+         pragma Loop_Invariant (H.Free_Count = H.Free_Count'Loop_Entry);
+         Mark_Root (H, M.Stack (I).Expr);
+         Mark_Root (H, M.Stack (I).Alt);
+         Mark_Root (H, M.Stack (I).Func);
+         Mark_Root (H, M.Stack (I).Args);
+         Mark_Root (H, M.Stack (I).Sym);
+         Mark_Root (H, From_Handle (M.Stack (I).Env));
+      end loop;
+
+      Collect (H);
+   end Collect_Garbage;
+
    procedure Evaluate
      (H      : in out Heap_Type;
       Env    : Handle;
@@ -674,7 +729,10 @@ is
       M      : in out Machine;
       B      : in out Output_Buffer)
    is
-      Steps : Natural := 0;
+      Steps     : Natural := 0;
+      --  Counts evaluator steps between stress collections; the subtype makes
+      --  the increment below obviously safe.
+      Stress_Due : Natural range 0 .. GC_Stress_Every := GC_Stress_Every;
    begin
       M.Mode := Mode_Eval;
       M.Ctl := Expr;
@@ -686,10 +744,21 @@ is
       --  The step counter is driver state, not machine state: no callee can
       --  touch it, so the loop invariant needs no frame reasoning about the
       --  machine record.
-      Steps := 0;
       while M.Mode /= Mode_Halt loop
          pragma Loop_Invariant (Steps <= Max_Steps);
          pragma Loop_Invariant (H.Ready);
+
+         --  Safe point: collect before the step when the arena runs low, or
+         --  on a fixed cadence under --stress-gc.
+         if H.Free_Count <= GC_Low_Water
+           or else (H.Stress_GC and then Stress_Due = 0)
+         then
+            Collect_Garbage (H, Env, M);
+            Stress_Due := GC_Stress_Every;
+         elsif H.Stress_GC then
+            Stress_Due := Stress_Due - 1;
+         end if;
+
          if Steps >= Max_Steps then
             M.Error := Error_Step_Limit;
             M.Mode := Mode_Halt;

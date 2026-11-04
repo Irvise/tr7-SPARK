@@ -27,6 +27,7 @@ is
       P_Not,
       P_Display,
       P_Newline,
-      P_Write);
+      P_Write,
+      P_Free_Cells);
 
 end Tr7.Ids;

@@ -6,6 +6,7 @@ package body Tr7.Env with
    SPARK_Mode => On
 is
 
+
    procedure Environment_Cell
      (H   : Heap_Type;
       Env : Handle;
@@ -20,19 +21,22 @@ is
       end if;
    end Environment_Cell;
 
+   --  Locate the (symbol . value) cell for Sym in one frame.  Returning the
+   --  cell rather than its value lets every caller both read and update the
+   --  binding, so each of them walks the frame exactly once.
    procedure Find_In_Frame
-     (H     : Heap_Type;
-      List  : Value;
-      Sym   : Value;
-      Found : out Boolean;
-      Val   : out Value;
-      Ok    : out Boolean)
+     (H       : Heap_Type;
+      List    : Value;
+      Sym     : Value;
+      Binding : out Handle;
+      Found   : out Boolean;
+      Ok      : out Boolean)
      with Pre => H.Ready
    is
       Cur : Value := List;
    begin
+      Binding := Null_Handle;
       Found := False;
-      Val := Nil_Value;
       Ok := False;
       loop
          if Is_Nil (Cur) then
@@ -64,8 +68,8 @@ is
               and then Is_Handle (Binding_Cell.Car)
               and then Same_Handle (To_Handle (Binding_Cell.Car), To_Handle (Sym))
             then
+               Binding := To_Handle (Node.Car);
                Found := True;
-               Val := Binding_Cell.Cdr;
                Ok := True;
                return;
             end if;
@@ -74,52 +78,6 @@ is
          end;
       end loop;
    end Find_In_Frame;
-
-   procedure Update_In_Frame
-     (H    : in out Heap_Type;
-      List : Value;
-      Sym  : Value;
-      Val  : Value;
-      Ok   : out Boolean)
-     with
-       Pre  => H.Ready,
-       Post => H.Ready
-   is
-      Cur : Value := List;
-   begin
-      Ok := False;
-      while not Is_Nil (Cur) loop
-         if not Is_Handle (Cur) then
-            return;
-         end if;
-
-         declare
-            Node  : Cell;
-            Binding_Cell : Cell;
-            Good  : Boolean;
-         begin
-            Fetch (H, To_Handle (Cur), Node, Good);
-            if not Good or else Node.Kind /= Cell_Pair
-              or else not Is_Handle (Node.Car)
-            then
-               return;
-            end if;
-            Fetch (H, To_Handle (Node.Car), Binding_Cell, Good);
-            if not Good or else Binding_Cell.Kind /= Cell_Pair then
-               return;
-            end if;
-            if Is_Handle (Sym)
-              and then Is_Handle (Binding_Cell.Car)
-              and then Same_Handle (To_Handle (Binding_Cell.Car), To_Handle (Sym))
-            then
-               Set_Cdr (H, To_Handle (Node.Car), Val, Good);
-               Ok := Good;
-               return;
-            end if;
-            Cur := Node.Cdr;
-         end;
-      end loop;
-   end Update_In_Frame;
 
    procedure New_Environment
      (H      : in out Heap_Type;
@@ -140,8 +98,8 @@ is
    is
       E       : Cell;
       Found   : Boolean;
-      Old     : Value;
       Valid   : Boolean;
+      Bind    : Handle;
       Binding : Value;
       New_List : Value;
       Hd      : Handle;
@@ -152,13 +110,13 @@ is
          return;
       end if;
 
-      Find_In_Frame (H, E.Car, Sym, Found, Old, Valid);
+      Find_In_Frame (H, E.Car, Sym, Bind, Found, Valid);
       if not Valid then
          return;
       end if;
 
       if Found then
-         Update_In_Frame (H, E.Car, Sym, Val, Valid);
+         Set_Cdr (H, Bind, Val, Valid);
          Ok := Valid;
       else
          New_Pair (H, Sym, Val, Hd, Valid);
@@ -186,23 +144,24 @@ is
       E       : Cell;
       Valid   : Boolean;
       Found   : Boolean;
-      Old     : Value;
+      Bind    : Handle;
    begin
       Ok := False;
       for Depth in 0 .. Max_Env_Depth loop
          pragma Loop_Invariant (H.Ready);
+         pragma Loop_Invariant (H.Free_Count = H.Free_Count'Loop_Entry);
          Environment_Cell (H, Cur_Env, E, Valid);
          if not Valid then
             return;
          end if;
 
-         Find_In_Frame (H, E.Car, Sym, Found, Old, Valid);
+         Find_In_Frame (H, E.Car, Sym, Bind, Found, Valid);
          if not Valid then
             return;
          end if;
 
          if Found then
-            Update_In_Frame (H, E.Car, Sym, Val, Valid);
+            Set_Cdr (H, Bind, Val, Valid);
             Ok := Valid;
             return;
          end if;
@@ -220,8 +179,10 @@ is
    is
       Cur_Env : Handle := Env;
       E       : Cell;
+      B       : Cell;
       Valid   : Boolean;
       Found   : Boolean;
+      Bind    : Handle;
    begin
       Val := Nil_Value;
       Ok := False;
@@ -231,11 +192,16 @@ is
             return;
          end if;
 
-         Find_In_Frame (H, E.Car, Sym, Found, Val, Valid);
+         Find_In_Frame (H, E.Car, Sym, Bind, Found, Valid);
          if not Valid then
             return;
          end if;
          if Found then
+            Fetch (H, Bind, B, Valid);
+            if not Valid or else B.Kind /= Cell_Pair then
+               return;
+            end if;
+            Val := B.Cdr;
             Ok := True;
             return;
          end if;

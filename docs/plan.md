@@ -155,14 +155,21 @@ and tests.
 
 ## M1 breakdown (next)
 
-Concrete order, each step keeping the proof and the four suites green:
+Concrete order, each step keeping the proof and the suites green.
 
-1. **GC skeleton** -- explicit root list (machine state, global environment,
-   symbol cells, in-flight reader/writer temporaries), mark phase over the
-   arena, sweep into the free list, and a `Stress_GC` mode that collects at
-   every allocation so the suites exercise it continuously.  Contracts: roots
-   are valid handles, mark stack stays in bounds, `Ready` survives collection,
-   sweeping never drops a marked cell.
+1. **GC skeleton** -- **done in code, in proof**: explicit roots (CEK state plus
+   global environment), mark phase over the arena, sweep into the free list,
+   and a `--stress-gc` mode collecting on a fixed cadence so the suites
+   exercise the collector continuously.  The suite asserts that garbage was
+   reclaimed (`free-cells`), and the same file runs both normally and under
+   stress.  Root contract: `Ready` survives collection, the mark stack stays
+   bounded, no cell is freed while marking is incomplete.  The proof run for
+   this step is the gate for committing it.
+
+   The GC suite also exposed (and now regression-tests) two M0 defects: tail
+   calls were leaking a pass-through frame per call, and `-gnata` was evaluating
+   quantified loop invariants at run time (8.4 ms per collection instead of
+   5 us).  Both are fixed; see `docs/findings.md`.
 2. **Derived binding forms** -- `let`, `let*`, `letrec`, `cond`, `case`, `and`,
    `or`, `when`, `unless`, `do`, desugared in the evaluator or expanded by the
    reader, whichever keeps `tr7-machine.adb` small enough to prove.

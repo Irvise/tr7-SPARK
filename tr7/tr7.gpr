@@ -14,10 +14,25 @@ project Tr7 is
      external ("TR7_LIBRARY_TYPE", external ("LIBRARY_TYPE", "static"));
    for Library_Kind use Library_Type;
 
+   --  Runtime check level, shared by every project that withs this one:
+   --  "on"  (default) compiles with -gnata so the test suites run with
+   --        preconditions, postconditions and overflow checks live;
+   --  "off" compiles with -gnatp, which is what benchmarks must use so that
+   --        measurements are not dominated by contract checking.
+   type Checks_Type is ("on", "off");
+   Checks : Checks_Type := external ("TR7_CHECKS", "on");
+
    package Compiler is
-      for Default_Switches ("Ada") use
-        Tr7_Config.Ada_Compiler_Switches &
-        ("-gnat2012", "-gnata", "-gnatwa");
+      case Checks is
+         when "on" =>
+            for Default_Switches ("Ada") use
+              Tr7_Config.Ada_Compiler_Switches &
+              ("-gnat2012", "-gnata", "-gnatwa");
+         when others =>
+            for Default_Switches ("Ada") use
+              Tr7_Config.Ada_Compiler_Switches &
+              ("-gnat2012", "-gnatwa", "-gnatp");
+      end case;
    end Compiler;
 
    package Binder is

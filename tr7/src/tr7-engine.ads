@@ -48,6 +48,11 @@ is
        Pre  => E.H.Ready,
        Post => E.H.Ready;
 
+   procedure Set_Stress_GC (E : in out Engine; Enabled : Boolean)
+     with
+       Pre  => E.H.Ready,
+       Post => E.H.Ready and then E.H.Stress_GC = Enabled;
+
    procedure Reset_Output (E : in out Engine)
      with Pre => E.H.Ready;
 

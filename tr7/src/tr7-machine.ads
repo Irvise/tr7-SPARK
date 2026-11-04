@@ -45,6 +45,23 @@ is
       Error  : Error_Code := No_Error;
    end record;
 
+   --  Collect the heap, rooting the machine state and the global environment.
+   --
+   --  This is only correct at a safe point -- between steps, where the CEK
+   --  state plus Env are the whole of the live data -- which is where the
+   --  evaluator and the engine call it.  When marking cannot complete the
+   --  cycle is abandoned and the heap is left exactly as it was, so the only
+   --  effect of a failed collection is that less garbage is reclaimed.
+   procedure Collect_Garbage
+     (H   : in out Heap_Type;
+      Env : Handle;
+      M   : Machine)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+         and then H.Mark_Top = 0
+         and then H.Free_Count >= H.Free_Count'Old;
+
    procedure Evaluate
      (H      : in out Heap_Type;
       Env    : Handle;

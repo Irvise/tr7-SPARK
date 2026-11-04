@@ -1,0 +1,10 @@
+with "../tr7/tr7.gpr";
+project Bench is
+   for Source_Dirs use (".");
+   for Object_Dir use "obj";
+   for Create_Missing_Dirs use "True";
+   for Main use ("bench_collect.adb");
+   package Compiler is
+      for Default_Switches ("Ada") use ("-O3", "-gnat2012", "-gnatwa", "-gnatp");
+   end Compiler;
+end Bench;

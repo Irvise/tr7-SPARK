@@ -3,9 +3,14 @@ package body Tr7.Heap with
    SPARK_Mode => On
 is
 
+
    procedure Initialize (H : out Heap_Type) is
    begin
       H.Cells := (others => (Kind => Cell_Free, others => <>));
+      H.Mark_Stack := (others => Valid_Cell_Index'First);
+      H.Mark_Top := 0;
+      H.Mark_Failed := False;
+      H.Stress_GC := False;
 
       for I in Valid_Cell_Index loop
          pragma Loop_Invariant
@@ -261,5 +266,118 @@ is
          Ok := False;
       end if;
    end Set_Cdr;
+
+   --  Collector
+   --  ----------------
+
+   procedure Mark_Root (H : in out Heap_Type; V : Value) is
+      Hd    : Handle;
+      C     : Cell;
+      Valid : Boolean;
+   begin
+      if not Is_Handle (V) then
+         return;
+      end if;
+
+      Hd := To_Handle (V);
+      --  Fetch rejects stale handles, freed cells and index 0, so a root that
+      --  no longer resolves is simply ignored.
+      Fetch (H, Hd, C, Valid);
+      if not Valid or else C.Mark then
+         return;
+      end if;
+
+      if H.Mark_Top = Max_Cells then
+         H.Mark_Failed := True;
+         return;
+      end if;
+
+      H.Cells (Valid_Cell_Index (Hd.Index)).Mark := True;
+      H.Mark_Top := H.Mark_Top + 1;
+      H.Mark_Stack (Valid_Cell_Index (H.Mark_Top)) := Valid_Cell_Index (Hd.Index);
+   end Mark_Root;
+
+   procedure Collect (H : in out Heap_Type) is
+      Free_Before : constant Natural := H.Free_Count;
+      Idx         : Valid_Cell_Index;
+      C           : Cell;
+   begin
+      --  Drain the mark stack.  Each round visits one cell and roots its
+      --  children; a cell is pushed at most once, so Max_Cells rounds always
+      --  empty the stack.  The bound also keeps the work of one collection
+      --  explicit.
+      for K in 1 .. Max_Cells loop
+         pragma Loop_Invariant (H.Ready);
+         pragma Loop_Invariant (H.Mark_Top <= Max_Cells);
+         --  Marking only flips mark bits, so the free list is still exactly
+         --  what it was when Collect was entered; the sweep relies on that.
+         pragma Loop_Invariant (H.Free_Count = Free_Before);
+         exit when H.Mark_Top = 0 or else H.Mark_Failed;
+
+         Idx := H.Mark_Stack (Valid_Cell_Index (H.Mark_Top));
+         H.Mark_Top := H.Mark_Top - 1;
+         C := H.Cells (Idx);
+
+         case C.Kind is
+            when Cell_Pair =>
+               Mark_Root (H, C.Car);
+               Mark_Root (H, C.Cdr);
+
+            when Cell_Closure =>
+               Mark_Root (H, C.Car);
+               Mark_Root (H, C.Cdr);
+               Mark_Root (H, From_Handle (C.Env));
+
+            when Cell_Environment =>
+               Mark_Root (H, C.Car);
+               Mark_Root (H, From_Handle (C.Env));
+
+            when others =>
+               null;
+         end case;
+      end loop;
+
+      if H.Mark_Failed or else H.Mark_Top /= 0 then
+         --  Marking did not finish, so the marked set is not known to cover
+         --  everything reachable.  Sweeping now could free a live cell: drop
+         --  the marks, keep every cell where it is, and report failure.  The
+         --  caller keeps running and simply runs out of space, which is a
+         --  Scheme error, never a wrong answer.
+         for I in Valid_Cell_Index loop
+            pragma Loop_Invariant (H.Ready);
+            pragma Loop_Invariant
+              (for all J in Valid_Cell_Index =>
+                 (if J < I then not H.Cells (J).Mark));
+            H.Cells (I).Mark := False;
+         end loop;
+         H.Mark_Top := 0;
+         H.Mark_Failed := False;
+         return;
+      end if;
+
+      --  Sweep.  Anything still unmarked and not free is unreachable.
+      for I in Valid_Cell_Index loop
+         pragma Loop_Invariant (H.Ready);
+         pragma Loop_Invariant (H.Mark_Top = 0);
+         pragma Loop_Invariant (H.Free_Count >= Free_Before);
+         pragma Loop_Invariant
+           (for all J in Valid_Cell_Index =>
+              (if J < I then not H.Cells (J).Mark));
+         if H.Cells (I).Kind /= Cell_Free and then not H.Cells (I).Mark then
+            --  Unreachable: push it back on the free list, exactly as Release
+            --  would.  The guard keeps Free_Count inside its subtype; if the
+            --  list were ever full the cell would simply stay allocated.
+            if H.Free_Count < Max_Cells then
+               H.Cells (I).Kind := Cell_Free;
+               H.Cells (I).Mark := False;
+               H.Cells (I).Next_Free := H.Free_Head;
+               H.Free_Head := I;
+               H.Free_Count := H.Free_Count + 1;
+            end if;
+         else
+            H.Cells (I).Mark := False;
+         end if;
+      end loop;
+   end Collect;
 
 end Tr7.Heap;

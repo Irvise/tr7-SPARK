@@ -45,6 +45,11 @@ An environment is a cell containing an association list of
 with explicit depth bounds.  This is deliberately simple; compile-time frame
 offsets can replace it later without changing the evaluator interface.
 
+One traversal serves all three operations: `Find_In_Frame` returns the *binding
+cell* rather than its value, so `Lookup` reads it while `Define` and `Set`
+update it through `Set_Cdr` -- nobody walks a frame twice, and no caller
+receives an `out` parameter it would have to ignore.
+
 ## Reader and writer
 
 - Reader: bounded recursive descent over a string.  Supports lists, dotted
@@ -80,3 +85,46 @@ Scheme error at the application point, and `tr7i` prints
 `error: <name>` while keeping everything the program printed before the error.
 Every path through `Call` that does not report success reports a type error, so
 a missing assignment can only produce an error, never silence.
+
+## Garbage collection
+
+The arena is collected by a mark-sweep collector that only ever runs at a
+**safe point**: the top of the evaluator loop, between steps, plus (for the
+next datum) in the engine's read loop.  At those points the CEK state -- control,
+result, current environment and every continuation frame -- plus the global
+environment are a *complete* root set, and no step-local object is alive.
+
+- `Tr7.Machine.Collect_Garbage` roots that state with `Tr7.Heap.Mark_Root` and
+  then calls `Tr7.Heap.Collect`.
+- `Collect` drains a bounded mark stack (each cell is pushed at most once, so
+  `Max_Cells` entries suffice), then sweeps unmarked cells back onto the free
+  list, in place, without touching their generation -- the generation check on
+  the next allocation is what rejects stale handles.
+- If marking cannot complete (a full mark stack), the cycle is abandoned: every
+  mark is dropped and *no* cell is freed.  A failed collection therefore only
+  leaves garbage in place; it can never free a live object.  `Collect` has no
+  success flag because the heap is left exactly as it was.
+- Trigger: `H.Free_Count <= GC_Low_Water` (512 cells) at a safe point, or a
+  fixed cadence under `--stress-gc` (`GC_Stress_Every`, 8).
+- The reader never allocates while a collection can run, so reader temporaries
+  are never at risk; a datum that alone exceeds the free space is reported as
+  `heap exhausted`.
+
+Tail calls matter to the collector as much as to the stack: the last form of a
+lambda body and the last form of a `begin` are in tail position and push **no**
+frame, so recursion keeps a constant-size root set (and constant stack space).
+
+## Runtime checks are a build property
+
+No source file selects an assertion policy.  `tr7.gpr` picks the switches from
+the `TR7_CHECKS` scenario, and every project in the graph inherits it:
+
+- `TR7_CHECKS=on` (default): `-gnata`, so preconditions, postconditions,
+  overflow and index checks are live while the suites run.  This is what tests
+  and proofs use, and what `prove.sh` and `test.sh` force.
+- `TR7_CHECKS=off`: `-gnatp`, no contract evaluation at run time.  Benchmarks
+  only -- quantified loop invariants cost O(n^2) under `-gnata`
+  (`docs/findings.md`), so timing a checked build measures the checker.
+
+GNATprove checks loop invariants and contracts in both cases; a `-gnatp` build
+would make it *skip* obligations, which is why `prove.sh` pins the scenario.

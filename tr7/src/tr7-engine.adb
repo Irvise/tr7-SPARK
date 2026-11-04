@@ -1,3 +1,4 @@
+with Tr7.Config; use Tr7.Config;
 with Tr7.Env;
 with Tr7.Ids; use Tr7.Ids;
 with Tr7.Primitives; use Tr7.Primitives;
@@ -7,6 +8,7 @@ with Tr7.Writer;
 package body Tr7.Engine with
    SPARK_Mode => On
 is
+
 
    procedure Initialize
      (E  : out Engine;
@@ -29,6 +31,7 @@ is
       end if;
 
       for P in Primitive_Id loop
+         pragma Loop_Invariant (E.H.Ready);
          if P /= P_None then
             New_Primitive (E.H, P, Prim_H, Good);
             if not Good then
@@ -68,6 +71,13 @@ is
       loop
          pragma Loop_Invariant (Pos <= Source'Length);
          pragma Loop_Invariant (E.H.Ready);
+
+         --  Safe point between datums: the machine is idle, so the machine
+         --  state and the global environment root everything still live.
+         if E.H.Stress_GC or else E.H.Free_Count <= GC_Low_Water then
+            Tr7.Machine.Collect_Garbage (E.H, E.Global, E.M);
+         end if;
+
          Old_Pos := Pos;
          Read_Datum (E.H, Source, Pos, Expr, RS);
          case RS is
@@ -102,6 +112,11 @@ is
    begin
       Tr7.Writer.Write_Value (E.H, V, E.Output, Ok, Display);
    end Print_Value;
+
+   procedure Set_Stress_GC (E : in out Engine; Enabled : Boolean) is
+   begin
+      E.H.Stress_GC := Enabled;
+   end Set_Stress_GC;
 
    procedure Reset_Output (E : in out Engine) is
    begin

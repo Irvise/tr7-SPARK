@@ -1,8 +1,10 @@
---  Heap with a free list.
+--  Heap with a free list and a mark-sweep collector.
 --
 --  v1 uses an engine-owned arena of fixed-size cells.  Allocation pops from a
---  singly linked free list; release pushes back.  A later mark-sweep collector
---  can reuse the same free list without changing the value representation.
+--  singly linked free list; release pushes back.  The collector reuses the
+--  same free list: callers root what they are holding with Mark_Root and then
+--  call Collect, which drains the mark stack and sweeps unmarked cells back
+--  onto the free list.
 
 with Interfaces; use Interfaces;
 with Tr7.Cells; use Tr7.Cells;
@@ -14,18 +16,32 @@ package Tr7.Heap with
    SPARK_Mode => On
 is
 
+   --  The mark stack holds cells whose outgoing references still have to be
+   --  visited.  A cell is pushed at most once (it is marked on the way in), so
+   --  Max_Cells entries are enough for any object graph in the arena.
+   type Mark_Array is array (Valid_Cell_Index) of Valid_Cell_Index;
+
    type Heap_Type is record
-      Cells      : Cell_Array;
-      Free_Head  : Cell_Index := 0;
-      Free_Count : Natural range 0 .. Max_Cells := 0;
-      Ready      : Boolean := False;
+      Cells       : Cell_Array;
+      Free_Head   : Cell_Index := 0;
+      Free_Count  : Natural range 0 .. Max_Cells := 0;
+      Ready       : Boolean := False;
+      Mark_Stack  : Mark_Array := (others => Valid_Cell_Index'First);
+      Mark_Top    : Natural range 0 .. Max_Cells := 0;
+      Mark_Failed : Boolean := False;
+      --  Collect at every safe point instead of only below GC_Low_Water; the
+      --  REPL enables it with --stress-gc so the suites exercise the
+      --  collector continuously.
+      Stress_GC   : Boolean := False;
    end record;
 
    procedure Initialize (H : out Heap_Type)
      with
        Post => H.Ready
          and then H.Free_Count = Max_Cells
-         and then H.Free_Head = 1;
+         and then H.Free_Head = 1
+         and then H.Mark_Top = 0
+         and then not H.Mark_Failed;
 
    procedure Allocate
      (H      : in out Heap_Type;
@@ -153,5 +169,32 @@ is
      with
        Pre  => H.Ready,
        Post => H.Ready;
+
+   --  Collector.
+   --
+   --  Usage: root everything live (Mark_Root), then call Collect.  Registering
+   --  a root never allocates, so nothing can be lost between the two calls.
+   --  Marking cannot fail silently: a full mark stack sets Mark_Failed, and
+   --  Collect then abandons the cycle without sweeping -- which can only leave
+   --  garbage in place, never free a live cell.
+   --  Rooting only flips mark bits: it never allocates, never frees and never
+   --  touches the free list, which is what lets Collect reason about
+   --  Free_Count across the whole drain phase.
+   procedure Mark_Root (H : in out Heap_Type; V : Value)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready and then H.Free_Count = H.Free_Count'Old;
+
+   --  Collect has no success flag on purpose: when marking cannot complete
+   --  the cycle is abandoned and the heap is left byte-for-byte as it was, so
+   --  the only consequence is that less garbage is reclaimed.
+   procedure Collect (H : in out Heap_Type)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+         and then H.Mark_Top = 0
+         and then not H.Mark_Failed
+         and then H.Free_Count >= H.Free_Count'Old
+         and then (for all I in Valid_Cell_Index => not H.Cells (I).Mark);
 
 end Tr7.Heap;

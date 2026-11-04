@@ -4,6 +4,7 @@ package body Tr7.Pairs with
    SPARK_Mode => On
 is
 
+
    procedure Cons
      (H      : in out Heap_Type;
       A      : Value;

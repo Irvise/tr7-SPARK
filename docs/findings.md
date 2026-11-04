@@ -111,4 +111,61 @@ Consequences:
   (`Intern` does its own bound checks instead of demanding them from callers).
 - `in out` parameters lose every fact not repeated in the `Post`, so every
   heap-mutating helper carries `Pre => H.Ready, Post => H.Ready`; read-only
-  helpers keep `H : Heap_Type` and need no post at all.
+  helpers take `H : Heap_Type` and carry no post -- a post that merely repeats
+  the precondition of an `in` parameter earns a "postcondition does not check
+  the outcome" warning, and GNATprove separately suggests `could be IN` for
+  every `in out` parameter the body never writes.
+- GNAT warns about an `out` parameter the caller never reads, and silencing it
+  with `pragma Unreferenced` earns a second warning.  The way out is to change
+  the shape of the interface so that every caller uses it (see the environment
+  note in `docs/architecture.md`).
+- Loop invariants that the construct already implies -- `for I in 0 .. N`
+  giving `I <= N`, `while Mag > 0` giving `Mag >= 0`, a counter nothing
+  decrements -- draw `condition is always True` warnings: delete them.
+
+## Performance: measure with the checks off
+
+Rule adopted after this episode: **benchmark a checks-off build, never the
+checked one**, and keep runtime-check policy in the build flags rather than in
+the source.
+
+GNAT evaluates `pragma Loop_Invariant` at run time under `-gnata`.  A
+quantified invariant -- `for all J in Valid_Cell_Index => ...` inside a
+`for I in Valid_Cell_Index` loop -- is then O(n^2): 4,096 x 4,096 element
+tests.  Measured on the real `Collect_Garbage` (612 calls, idle heap):
+
+| build | per collection |
+| --- | --- |
+| `TR7_CHECKS=on` (`-gnata`, the default: tests and proofs) | 8,990 us |
+| `TR7_CHECKS=off` (`-gnatp`, benchmarks) | 2.3 us |
+
+Both profiles compile the same sources.  The scenario lives in `tr7.gpr`
+(a `case` on `TR7_CHECKS` inside `package Compiler`), so nothing in
+`tr7/src` selects a policy; `scripts/bench.sh` exports `TR7_CHECKS=off` for
+the whole project graph.
+
+How the number was mis-read at first, so it is not repeated:
+
+- benchmarking a client project that `with`s the library rebuilds the library
+  too -- if `TR7_CHECKS` is not exported for *that* invocation, the library is
+  quietly rebuilt with `-gnata` and the benchmark measures assertions again;
+- a standalone micro-benchmark whose result is dead can be optimised away and
+  report an instant time for the wrong reason.
+
+Numbers from `scripts/bench.sh` (checks off for the whole graph):
+
+| workload | time |
+| --- | --- |
+| 612 collections of an idle heap | 2.3 us each |
+| `tests/gc.scm` (3,000-element list, 6,000 tail calls) | 0.11 s |
+| the same under `--stress-gc` (~11,000 collections) | 2.3 s |
+| 500 datums of `(display 1)(newline)` | 0.005 s |
+
+The checked profile keeps quantified loop invariants live on purpose -- they
+are what proves the sweep leaves no stale mark -- and pays for it: the stress
+suite takes 2.3 s there as well, dominated by ~0.2 ms collections (marking a
+3,000-cell live set).  That is acceptable for a test build; anything timed goes
+through `scripts/bench.sh`.
+
+`free-cells` is a small non-standard extension primitive: it lets the GC suite
+assert that garbage was actually reclaimed, not merely that nothing crashed.

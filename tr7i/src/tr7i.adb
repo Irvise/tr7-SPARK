@@ -126,10 +126,23 @@ begin
       return;
    end if;
 
-   if Ada.Command_Line.Argument_Count > 0 then
-      Run_File (Ada.Command_Line.Argument (1));
-      return;
-   end if;
+   --  Flags may precede the script name.
+   for A in 1 .. Ada.Command_Line.Argument_Count loop
+      if Ada.Command_Line.Argument (A) = "--stress-gc" then
+         Set_Stress_GC (E, True);
+      end if;
+   end loop;
+
+   for A in 1 .. Ada.Command_Line.Argument_Count loop
+      declare
+         Arg : constant String := Ada.Command_Line.Argument (A);
+      begin
+         if Arg'Length > 0 and then Arg (Arg'First) /= '-' then
+            Run_File (Arg);
+            return;
+         end if;
+      end;
+   end loop;
 
    loop
       Put ("> ");

@@ -1,4 +1,4 @@
-.PHONY: all build test prove clean
+.PHONY: all build test prove bench clean
 
 all: build
 
@@ -11,5 +11,8 @@ test: build
 prove:
 	./scripts/prove.sh
 
+bench:
+	./scripts/bench.sh
+
 clean:
-	rm -rf tr7/obj tr7/lib tr7i/obj tr7i/bin tr7_c/obj tr7_c/lib
+	rm -rf tr7/obj tr7/lib tr7i/obj tr7i/bin tr7_c/obj tr7_c/lib bench/obj

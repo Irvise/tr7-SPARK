@@ -2,6 +2,7 @@ package body Tr7.Runtime with
    SPARK_Mode => On
 is
 
+
    procedure Put_Char
      (B  : in out Output_Buffer;
       C  : Character;
