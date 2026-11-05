@@ -74,6 +74,11 @@ the generic code name (`tests/error.scm`).
 values ride a wrapper cell that the evaluator spreads onto the consumer,
 one value stays itself, none becomes the empty wrapper.
 
+Restricted `call/cc` is in (`tests/callcc.scm`): an escape continuation
+valid within its dynamic extent -- the cell's own handle is its identity,
+the stack scan finds its frame, and invoking outside the extent reports
+`continuation expired`.
+
 Not yet present: `call/cc`, real file ports, the C ABI body, and
 `syntax-rules`.
 

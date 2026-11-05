@@ -68,6 +68,7 @@ is
          when Error_Index           => return "index out of range";
          when Error_Range           => return "value out of range";
          when Error_User            => return "user error";
+         when Error_Continuation    => return "continuation expired";
       end case;
    end Error_Name;
 

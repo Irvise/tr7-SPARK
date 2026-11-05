@@ -309,6 +309,15 @@ is
       Result := Hd;
    end New_Output_Port;
 
+   procedure New_Continuation
+     (H      : in out Heap_Type;
+      Result : out Handle;
+      Ok     : out Boolean)
+   is
+   begin
+      Allocate (H, Cell_Continuation, Result, Ok);
+   end New_Continuation;
+
    procedure New_Values
      (H      : in out Heap_Type;
       List   : Value;

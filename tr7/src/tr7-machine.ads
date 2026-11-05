@@ -59,7 +59,14 @@ is
       --  call-with-values: the producer closure is being called with no
       --  arguments; its values arrive next, to be spread onto the consumer
       --  waiting in Func.
-      K_Values_Recv);
+      K_Values_Recv,
+      --  call/cc: the procedure expression is being evaluated; its value
+      --  arrives next, to be given the continuation held in Expr's result.
+      K_CallCC,
+      --  call/cc: the trampoline the procedure was called through -- both
+      --  its normal return and an escape land here, and its Sym is the
+      --  continuation's identity.
+      K_CallCC_Recv);
 
    type Frame is record
       Kind : Frame_Kind := K_If;

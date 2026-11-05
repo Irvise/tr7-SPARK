@@ -199,6 +199,18 @@ is
        Pre  => H.Ready,
        Post => H.Ready and then (if Ok then Result.Index in Valid_Cell_Index);
 
+   --  An escape continuation.  The cell carries no depth: its own handle
+   --  *is* the identity, stamped into the capturing frame's Sym, and an
+   --  invocation finds that frame by scanning the stack -- so "is the
+   --  dynamic extent still live" and "where do I deliver" are one test.
+   procedure New_Continuation
+     (H      : in out Heap_Type;
+      Result : out Handle;
+      Ok     : out Boolean)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready and then (if Ok then Result.Index in Valid_Cell_Index);
+
    --  Wrap several values: the list already exists (an application's
    --  argument list), so the cell only adopts it.
    procedure New_Values

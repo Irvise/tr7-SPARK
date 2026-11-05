@@ -192,6 +192,7 @@ is
       First : Value;
       Rest  : Value;
       F     : Frame;
+      Found : Boolean;
    begin
       if not Is_Handle (Func) then
          Fail (M, Error_Not_A_Procedure);
@@ -205,6 +206,40 @@ is
       end if;
 
       case C.Kind is
+         when Cell_Continuation =>
+            --  Escape.  The captured frame must still be on the stack -- that
+            --  is what "within its dynamic extent" means here, and its Sym
+            --  is this very continuation's identity, so a stale cell cannot
+            --  match a later activation.  Found is also the unwind target:
+            --  everything above it is discarded when Top moves down.
+            Car_Of (H, Args, First, Good);
+            if not Good then
+               Fail (M, Error_Wrong_Arity);
+               return;
+            end if;
+            Cdr_Of (H, Args, Rest, Good);
+            if not Good or else not Is_Nil (Rest) then
+               Fail (M, Error_Wrong_Arity);
+               return;
+            end if;
+            Found := False;
+            for I in 1 .. M.Top loop
+               pragma Loop_Invariant (I <= M.Top);
+               if M.Stack (I).Kind = K_CallCC_Recv
+                 and then Same_Value (M.Stack (I).Sym, Func)
+               then
+                  M.Top := I;
+                  Found := True;
+                  exit;
+               end if;
+            end loop;
+            if not Found then
+               Fail (M, Error_Continuation);
+               return;
+            end if;
+            M.Result := First;
+            M.Mode := Mode_Return;
+
          when Cell_Primitive =>
             Call (H, C.Prim, Args, Res, B, Prim_Status);
             if Prim_Status /= No_Error then
@@ -2161,6 +2196,39 @@ is
       elsif Is_Symbol_Named (H, Head, "do") then
          Start_Do (H, M);
          return;
+      elsif Is_Symbol_Named (H, Head, "call/cc") then
+         --  (call/cc proc): evaluate the procedure, hand it an escape
+         --  continuation, and receive either the procedure's value or the
+         --  escape's -- both land on the same trampoline frame.
+         Cdr_Of (H, M.Ctl, Rest, Good);
+         if not Good or else Is_Nil (Rest) then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Car_Of (H, Rest, Tmp, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Cdr_Of (H, Rest, Tail2, Good);
+         if not Good or else not Is_Nil (Tail2) then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+
+         F := (Kind => K_CallCC,
+               Expr => Tmp,
+               Env  => M.Env,
+               others => <>);
+         Push (M, F, Good);
+         if not Good then
+            Fail (M, Error_Step_Limit);
+            return;
+         end if;
+         M.Ctl := Tmp;
+         M.Mode := Mode_Eval;
+         return;
+
       elsif Is_Symbol_Named (H, Head, "call-with-values") then
          --  (call-with-values producer consumer): the consumer is evaluated
          --  first and held while the producer runs, so its value is in hand
@@ -2445,6 +2513,7 @@ is
       F    : Frame;
       Good : Boolean;
       C    : Cell;
+      Hd   : Handle;
       New_Args : Value;
       Proper   : Value;
       First    : Value;
@@ -2667,6 +2736,36 @@ is
             end if;
             F.Func := New_Args;
             Do_Advance (H, M, F);
+
+         when K_CallCC =>
+            --  The procedure has been evaluated: build the continuation,
+            --  stamp its identity into the trampoline frame, and call the
+            --  procedure with it as the single argument.
+            New_Continuation (H, Hd, Good);
+            if not Good then
+               Fail (M, Error_Heap_Full);
+               return;
+            end if;
+            Cons (H, From_Handle (Hd), Nil_Value, Rest, Good);
+            if not Good then
+               Fail (M, Error_Heap_Full);
+               return;
+            end if;
+            F.Kind := K_CallCC_Recv;
+            F.Sym := From_Handle (Hd);
+            Push (M, F, Good);
+            if not Good then
+               Fail (M, Error_Step_Limit);
+               return;
+            end if;
+            First := M.Result;
+            Apply_Procedure (H, First, Rest, M, B);
+
+         when K_CallCC_Recv =>
+            --  The procedure returned on its own path (an escape rewound
+            --  the stack itself before landing here), so the value that was
+            --  just delivered is this form's.
+            M.Mode := Mode_Return;
 
          when K_Values =>
             --  The consumer has been evaluated; its value goes into Func

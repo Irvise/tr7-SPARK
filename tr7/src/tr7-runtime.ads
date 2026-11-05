@@ -22,7 +22,9 @@ is
       Error_Index,
       Error_Range,
       --  Scheme's own (error ...), whose text lives in Heap.Error_Msg.
-      Error_User);
+      Error_User,
+      --  A continuation invoked outside the dynamic extent it captured.
+      Error_Continuation);
 
    Max_Output : constant := 4_096;
 
