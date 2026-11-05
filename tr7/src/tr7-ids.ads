@@ -68,6 +68,7 @@ is
       P_Peek_Char,
       P_Char_Ready,
       P_Port_P,
-      P_Eof_Object_P);
+      P_Eof_Object_P,
+      P_Div);
 
 end Tr7.Ids;

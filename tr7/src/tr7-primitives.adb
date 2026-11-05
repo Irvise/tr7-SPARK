@@ -84,6 +84,7 @@ is
          when P_Char_Ready         => return "char-ready?";
          when P_Port_P             => return "port?";
          when P_Eof_Object_P       => return "eof-object?";
+         when P_Div                => return "/";
       end case;
    end Name_Of;
 
@@ -2522,6 +2523,162 @@ is
    --  exact->inexact: an exact integer as the double nearest its value
    --  (every fixnum is far inside a double's precision), an inexact number
    --  unchanged.
+   --  (/ x ...) with no rationals in v1: an exact quotient when every step
+   --  divides evenly, and the inexact double otherwise -- so (/ 6 3) is 2
+   --  and (/ 1 2) is 0.5.  A single flonum anywhere makes every step
+   --  inexact (R7RS), and the float division splits into the branches the
+   --  provers discharge: a divisor of at least one (the quotient cannot
+   --  grow), or both operands inside a fixed window whose ratio is below
+   --  the range; anything else reports an overflow rather than an
+   --  infinity.
+   procedure Div_Prim
+     (H      : Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with Pre => H.Ready
+   is
+      Arr    : Value_Array;
+      Len    : Natural;
+      Good   : Boolean;
+      Acc    : Fixnum;
+      Term   : Fixnum;
+      Acc_F  : Long_Float;
+      Term_F : Long_Float;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      if Len = 0 then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+
+      --  (car x) style: one operand is the reciprocal.
+      if Len = 1 then
+         Get_Fixnum (Arr (1), Acc, Good);
+         if not Good then
+            return;
+         end if;
+         if Acc = 0 then
+            Status := Error_Division_By_Zero;
+            return;
+         end if;
+         if Acc = 1 or else Acc = -1 then
+            Result := From_Fixnum (Acc);
+            Status := No_Error;
+            return;
+         end if;
+         --  The reciprocal of anything else is inexact in v1; the divisor
+         --  has magnitude at least one, which is the branch that proves.
+         Acc_F := 1.0 / Long_Float (Acc);
+         Result := From_Flonum (Acc_F);
+         Status := No_Error;
+         return;
+      end if;
+
+      --  Chain: start from the first operand and fold.
+      Get_Fixnum (Arr (1), Acc, Good);
+      if not Good then
+         --  A flonum operand: the whole chain is inexact.
+         if not Is_Number (Arr (1)) then
+            return;
+         end if;
+         Acc_F := As_Float (Arr (1));
+         for I in 2 .. Len loop
+            pragma Loop_Invariant (Len <= Arr'Length);
+            if not Is_Number (Arr (I)) then
+               return;
+            end if;
+            Term_F := As_Float (Arr (I));
+            if not In_Range (Acc_F) or else not In_Range (Term_F) then
+               Status := Error_Overflow;
+               return;
+            end if;
+            if Term_F = 0.0 then
+               Status := Error_Division_By_Zero;
+               return;
+            end if;
+            if abs Term_F >= 1.0
+              or else (abs Acc_F <= 1.0E300
+                       and then abs Term_F >= 1.0E-8)
+            then
+               Acc_F := Acc_F / Term_F;
+            else
+               Status := Error_Overflow;
+               return;
+            end if;
+         end loop;
+         Result := From_Flonum (Acc_F);
+         Status := No_Error;
+         return;
+      end if;
+
+      --  All fixnums so far: divide exactly where possible.
+      for I in 2 .. Len loop
+         pragma Loop_Invariant (Len <= Arr'Length);
+         if Any_Flonum (Arr, Len) then
+            --  A later flonum makes the whole chain inexact: restart from
+            --  the accumulator as a double.
+            Acc_F := Long_Float (Acc);
+            for J in I .. Len loop
+               if not Is_Number (Arr (J)) then
+                  return;
+               end if;
+               Term_F := As_Float (Arr (J));
+               if not In_Range (Acc_F) or else not In_Range (Term_F) then
+                  Status := Error_Overflow;
+                  return;
+               end if;
+               if Term_F = 0.0 then
+                  Status := Error_Division_By_Zero;
+                  return;
+               end if;
+               if abs Term_F >= 1.0
+                 or else (abs Acc_F <= 1.0E300
+                          and then abs Term_F >= 1.0E-8)
+               then
+                  Acc_F := Acc_F / Term_F;
+               else
+                  Status := Error_Overflow;
+                  return;
+               end if;
+            end loop;
+            Result := From_Flonum (Acc_F);
+            Status := No_Error;
+            return;
+         end if;
+         Get_Fixnum (Arr (I), Term, Good);
+         if not Good then
+            return;
+         end if;
+         if Term = 0 then
+            Status := Error_Division_By_Zero;
+            return;
+         end if;
+         Div_Guard (Acc, Term, Status);
+         if Status /= No_Error then
+            return;
+         end if;
+         if Acc mod Term = 0 then
+            Acc := Acc / Term;
+         else
+            --  Not exact: fall back to the double quotient, where the
+            --  divisor's magnitude (at least one) keeps the branch provable.
+            Acc_F := Long_Float (Acc) / Long_Float (Term);
+            Result := From_Flonum (Acc_F);
+            Status := No_Error;
+            return;
+         end if;
+      end loop;
+
+      Result := From_Fixnum (Integer_64 (Acc));
+      Status := No_Error;
+   end Div_Prim;
+
    procedure Exact_To_Inexact_Prim
      (H      : Heap_Type;
       Args   : Value;
@@ -3020,6 +3177,9 @@ is
 
          when P_Mul =>
             Mul (H, Args, Result, Status);
+
+         when P_Div =>
+            Div_Prim (H, Args, Result, Status);
 
          when P_Num_Equal | P_Less | P_Greater | P_Less_Equal | P_Greater_Equal =>
             Compare_Chain (H, Args, P, Result, Status);

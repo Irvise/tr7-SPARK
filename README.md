@@ -63,7 +63,11 @@ String ports are in: `open-input-string`, `open-output-string`,
 and `newline` (`tests/ports.scm`); the OS boundary stays in `tr7i`, which
 loads files into strings.
 
-Not yet present: `/`, `call/cc`, real file ports, the C ABI body, and
+`/` divides exactly when every step is exact and returns the inexact
+double otherwise (`(/ 6 3)` is `2`, `(/ 1 2)` is `0.5`) -- v1 has no
+rationals (`tests/div.scm`).
+
+Not yet present: `call/cc`, real file ports, the C ABI body, and
 `syntax-rules`.
 
 ## Build

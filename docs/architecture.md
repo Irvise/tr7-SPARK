@@ -209,6 +209,13 @@ silently wrapped or truncated.  A wider fixnum would require a wide multiply
 whose exactness the SMT provers cannot discharge; `docs/findings.md` records
 the measurements and the route back (big-integer contracts).
 
+`/` has the no-rationals rule: exact when every step divides evenly, the
+inexact double otherwise (`(/ 6 3)` is `2`, `(/ 1 2)` is `0.5`), one
+flonum anywhere making the chain inexact.  Its float division branches the
+way the provers can discharge -- a divisor of at least one, or both
+operands inside a fixed window whose ratio fits the range -- and reports an
+overflow rather than producing an infinity.
+
 Exact division follows Scheme through Ada: `quotient` is Ada's `/`
 (truncation toward zero), `remainder` is `rem` (dividend's sign) and `modulo`
 is `mod` (divisor's sign) -- all three share one guard for a zero divisor and

@@ -221,8 +221,12 @@ Concrete order, each step keeping the proof and the suites green.
    correctly rounded double via `Integer_128` midpoint arithmetic), and
    inexact paths through `+`, `-`, `*` and the comparison chain.  Still
    fixnum-only: `abs`, `min`, `max`, `expt`, `quotient` and friends reject a
-   flonum argument (a type error), and there is no `/` yet -- `(/ 1 2)` has
-   no representation without rationals, and division with a flonum operand is
-   the natural next step.
+   flonum argument (a type error).  `/` is in (`tests/div.scm`) with the
+   no-rationals rule: an exact quotient when every step divides evenly, the
+   inexact double otherwise -- so `(/ 6 3)` is `2` and `(/ 1 2)` is `0.5` --
+   with a single flonum making the whole chain inexact and the float
+   division guarded into the branches the provers discharge (a divisor of at
+   least one, or both operands inside a fixed window whose ratio fits the
+   range), reporting an overflow rather than an infinity.
 
 Each step ends with: build, four suites, `scripts/prove.sh`, commit.
