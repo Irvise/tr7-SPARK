@@ -57,6 +57,8 @@ is
       P_Quotient,
       P_Remainder,
       P_Modulo,
-      P_Expt);
+      P_Expt,
+      P_Sqrt,
+      P_Exact_To_Inexact);
 
 end Tr7.Ids;

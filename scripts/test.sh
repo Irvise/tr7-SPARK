@@ -8,7 +8,7 @@ root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 export TR7_CHECKS=on
 
 status=0
-for suite in smoke primitives errors arity gc forms malformed cond bad-cond case bad-case strings index vectors vindex bytevectors bvindex brange lists numbers numovf defs defbad apply map qq bad-qq do bad-do; do
+for suite in smoke primitives errors arity gc forms malformed cond bad-cond case bad-case strings index vectors vindex bytevectors bvindex brange lists numbers numovf defs defbad apply map qq bad-qq do bad-do flonums; do
    "$root/tr7i/bin/tr7i" "$root/tests/$suite.scm" > "/tmp/tr7-$suite.out"
    if diff -u "$root/tests/$suite.expected" "/tmp/tr7-$suite.out"; then
       echo "test: $suite ok"

@@ -211,9 +211,15 @@ Concrete order, each step keeping the proof and the suites green.
    come in step 4: ports with the OS boundary in `tr7i`.
 5. **Numeric tower step 1** -- the integer half is in: `abs`, `min`, `max`,
    `quotient`, `remainder`, `modulo` and `expt` (`tests/numbers.scm`,
-   `tests/numovf.scm`), each overflow or zero-divisor path guarded and named.
-   Still to come as step 5b: flonums -- `exact->inexact`, `sqrt` and the
-   pure-Ada `%g`-style formatting, which is its own batch because the
-   formatter is real code and must round-trip through the writer.
+   `tests/numovf.scm`), each overflow or zero-divisor path guarded and named,
+   and so is step 5b: flonums (`tests/flonums.scm`) -- decimals read with a
+   single rounding, `%g`-style output that round-trips through the reader,
+   `exact->inexact`, `sqrt` (exact for perfect squares, and otherwise the
+   correctly rounded double via `Integer_128` midpoint arithmetic), and
+   inexact paths through `+`, `-`, `*` and the comparison chain.  Still
+   fixnum-only: `abs`, `min`, `max`, `expt`, `quotient` and friends reject a
+   flonum argument (a type error), and there is no `/` yet -- `(/ 1 2)` has
+   no representation without rationals, and division with a flonum operand is
+   the natural next step.
 
 Each step ends with: build, four suites, `scripts/prove.sh`, commit.

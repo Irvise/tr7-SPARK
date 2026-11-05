@@ -16,6 +16,7 @@ is
      (Kind_Void,
       Kind_Boolean,
       Kind_Fixnum,
+      Kind_Flonum,
       Kind_Character,
       Kind_Nil,
       Kind_Handle,
@@ -34,6 +35,9 @@ is
       C    : Unsigned_32 := 0;
       B    : Boolean := False;
       H    : Handle := Null_Handle;
+      --  An IEEE double: a flonum is immediate like a fixnum, so it needs no
+      --  cell and the collector never sees it.
+      F    : Long_Float := 0.0;
    end record;
 
    type Value_Array is array (1 .. Max_Arguments) of Value;
@@ -83,6 +87,18 @@ is
      ((Kind => Kind_Fixnum, N => N, others => <>))
      with Pre => N in Fixnum_Min .. Fixnum_Max;
 
+   function From_Flonum (X : Long_Float) return Value is
+     ((Kind => Kind_Flonum, F => X, others => <>));
+
+   function Is_Flonum (V : Value) return Boolean is
+     (V.Kind = Kind_Flonum);
+
+   --  The operand as a Long_Float: an exact integer converted (every fixnum
+   --  is far inside a double's range) or the flonum itself.
+   function As_Float (V : Value) return Long_Float is
+     (if V.Kind = Kind_Fixnum then Long_Float (V.N) else V.F)
+     with Pre => V.Kind = Kind_Fixnum or else V.Kind = Kind_Flonum;
+
    function To_Character (V : Value) return Unsigned_32 is
      (V.C)
      with Pre => V.Kind = Kind_Character;
@@ -109,6 +125,7 @@ is
                when Kind_Void | Kind_Nil | Kind_Unspecified => True,
                when Kind_Boolean   => A.B = B.B,
                when Kind_Fixnum    => A.N = B.N,
+               when Kind_Flonum    => A.F = B.F,
                when Kind_Character => A.C = B.C,
                when Kind_Handle    => Same_Handle (A.H, B.H)));
 

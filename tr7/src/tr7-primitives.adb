@@ -12,6 +12,13 @@ is
 
    subtype Fixnum is Integer_64 range Fixnum_Min .. Fixnum_Max;
 
+   --  The square root of the largest fixnum is 46340, so every root we can
+   --  return lives here.
+   subtype Root_Range is Natural range 0 .. 46_341;
+
+   --  floor(sqrt(V)) for V below 2**126 lands below 2**63.
+   subtype Wide_Root is Integer_128 range 0 .. 9_223_372_036_854_775_808;
+
    function Name_Of (P : Primitive_Id) return String is
    begin
       case P is
@@ -65,6 +72,8 @@ is
          when P_Remainder          => return "remainder";
          when P_Modulo             => return "modulo";
          when P_Expt               => return "expt";
+         when P_Sqrt               => return "sqrt";
+         when P_Exact_To_Inexact   => return "exact->inexact";
       end case;
    end Name_Of;
 
@@ -168,6 +177,22 @@ is
       end if;
    end Bytevector_Cell;
 
+   --  True when any argument is inexact: R7RS makes the whole operation
+   --  inexact then, which is what selects between the two paths below.
+   function Any_Flonum (Arr : Value_Array; Len : Natural) return Boolean is
+     (for some I in 1 .. Len => Arr (I).Kind = Kind_Flonum)
+     with Pre => Len <= Arr'Length;
+
+   --  The numeric-kind test the inexact paths repeat: anything else is a
+   --  type error, reported by leaving Status where the caller set it.
+   function Is_Number (V : Value) return Boolean is
+     (V.Kind = Kind_Fixnum or else V.Kind = Kind_Flonum);
+
+   --  Finite: neither NaN nor an infinity.  All comparisons, so no check
+   --  hangs off it.
+   function In_Range (V : Long_Float) return Boolean is
+     (V = V and then V <= Long_Float'Last and then V >= -Long_Float'Last);
+
    procedure Add
      (H      : Heap_Type;
       Args   : Value;
@@ -180,11 +205,46 @@ is
       Good : Boolean;
       Sum  : Fixnum := 0;
       Term : Fixnum;
+      Acc_F : Long_Float;
+      Term_F : Long_Float;
    begin
       Result := Void_Value;
       Status := Error_Type;
       Args_Of (H, Args, Arr, Len, Good);
       if not Good then
+         return;
+      end if;
+
+      if Any_Flonum (Arr, Len) then
+         Acc_F := 0.0;
+         for I in 1 .. Len loop
+            pragma Loop_Invariant (Len <= Arr'Length);
+            pragma Loop_Invariant (abs Acc_F <= Long_Float'Last);
+            if not Is_Number (Arr (I)) then
+               return;
+            end if;
+            Term_F := As_Float (Arr (I));
+            if not In_Range (Acc_F) or else not In_Range (Term_F) then
+               Status := Error_Overflow;
+               return;
+            end if;
+            --  Provably inside the range: one operand under one (the sum is
+            --  then at most the larger plus a fraction of it), or both under
+            --  half the range (the sum is then at most the range).  Anything
+            --  else -- two operands whose sum might not fit -- reports an
+            --  overflow rather than risking an unprovable check.
+            if abs Acc_F < 1.0 or else abs Term_F < 1.0
+              or else (abs Acc_F <= Long_Float'Last / 2.0
+                       and then abs Term_F <= Long_Float'Last / 2.0)
+            then
+               Acc_F := Acc_F + Term_F;
+            else
+               Status := Error_Overflow;
+               return;
+            end if;
+         end loop;
+         Result := From_Flonum (Acc_F);
+         Status := No_Error;
          return;
       end if;
 
@@ -226,6 +286,8 @@ is
       Good : Boolean;
       Acc  : Fixnum;
       Term : Fixnum;
+      Acc_F : Long_Float;
+      Term_F : Long_Float;
    begin
       Result := Void_Value;
       Status := Error_Type;
@@ -235,6 +297,45 @@ is
       end if;
       if Len = 0 then
          Status := Error_Wrong_Arity;
+         return;
+      end if;
+
+      if Any_Flonum (Arr, Len) then
+         if not Is_Number (Arr (1)) then
+            return;
+         end if;
+         Acc_F := As_Float (Arr (1));
+         if not In_Range (Acc_F) then
+            Status := Error_Overflow;
+            return;
+         end if;
+         if Len = 1 then
+            Acc_F := -Acc_F;
+         else
+            for I in 2 .. Len loop
+               pragma Loop_Invariant (Len <= Arr'Length);
+               pragma Loop_Invariant (abs Acc_F <= Long_Float'Last);
+               if not Is_Number (Arr (I)) then
+                  return;
+               end if;
+               Term_F := As_Float (Arr (I));
+               if not In_Range (Acc_F) or else not In_Range (Term_F) then
+                  Status := Error_Overflow;
+                  return;
+               end if;
+               if abs Acc_F < 1.0 or else abs Term_F < 1.0
+                 or else (abs Acc_F <= Long_Float'Last / 2.0
+                          and then abs Term_F <= Long_Float'Last / 2.0)
+               then
+                  Acc_F := Acc_F - Term_F;
+               else
+                  Status := Error_Overflow;
+                  return;
+               end if;
+            end loop;
+         end if;
+         Result := From_Flonum (Acc_F);
+         Status := No_Error;
          return;
       end if;
 
@@ -314,11 +415,43 @@ is
       Good : Boolean;
       Acc  : Fixnum := 1;
       Term : Fixnum;
+      Acc_F : Long_Float;
+      Term_F : Long_Float;
    begin
       Result := Void_Value;
       Status := Error_Type;
       Args_Of (H, Args, Arr, Len, Good);
       if not Good then
+         return;
+      end if;
+
+      if Any_Flonum (Arr, Len) then
+         Acc_F := 1.0;
+         for I in 1 .. Len loop
+            pragma Loop_Invariant (Len <= Arr'Length);
+            pragma Loop_Invariant (abs Acc_F <= Long_Float'Last);
+            if not Is_Number (Arr (I)) then
+               return;
+            end if;
+            Term_F := As_Float (Arr (I));
+            if not In_Range (Acc_F) or else not In_Range (Term_F) then
+               Status := Error_Overflow;
+               return;
+            end if;
+            --  One operand under one (the product is then below the
+            --  larger), or both under 1.3e154 (whose square is below the
+            --  range); anything else reports an overflow.
+            if abs Acc_F < 1.0 or else abs Term_F < 1.0
+              or else (abs Acc_F <= 1.3E154 and then abs Term_F <= 1.3E154)
+            then
+               Acc_F := Acc_F * Term_F;
+            else
+               Status := Error_Overflow;
+               return;
+            end if;
+         end loop;
+         Result := From_Flonum (Acc_F);
+         Status := No_Error;
          return;
       end if;
 
@@ -349,12 +482,14 @@ is
       Status : out Error_Code)
      with Pre => H.Ready
    is
-      Arr  : Value_Array;
-      Len  : Natural;
-      Good : Boolean;
-      Prev : Fixnum;
-      Cur  : Fixnum;
-      Res  : Boolean := True;
+      Arr   : Value_Array;
+      Len   : Natural;
+      Good  : Boolean;
+      Prev  : Fixnum;
+      Cur   : Fixnum;
+      Prev_F : Long_Float;
+      Cur_F  : Long_Float;
+      Res   : Boolean := True;
    begin
       Result := Void_Value;
       Status := Error_Type;
@@ -365,6 +500,40 @@ is
 
       if Len = 0 then
          Result := True_Value;
+         Status := No_Error;
+         return;
+      end if;
+
+      if Any_Flonum (Arr, Len) then
+         --  A NaN makes every comparison false, which is what IEEE
+         --  comparison gives for free and what R7RS asks for.
+         if not Is_Number (Arr (1)) then
+            return;
+         end if;
+         Prev_F := As_Float (Arr (1));
+         for I in 2 .. Len loop
+            pragma Loop_Invariant (Len <= Arr'Length);
+            if not Is_Number (Arr (I)) then
+               return;
+            end if;
+            Cur_F := As_Float (Arr (I));
+            case Mode is
+               when P_Num_Equal =>
+                  Res := Res and then Prev_F = Cur_F;
+               when P_Less =>
+                  Res := Res and then Prev_F < Cur_F;
+               when P_Greater =>
+                  Res := Res and then Prev_F > Cur_F;
+               when P_Less_Equal =>
+                  Res := Res and then Prev_F <= Cur_F;
+               when P_Greater_Equal =>
+                  Res := Res and then Prev_F >= Cur_F;
+               when others =>
+                  return;
+            end case;
+            Prev_F := Cur_F;
+         end loop;
+         Result := Bool (Res);
          Status := No_Error;
          return;
       end if;
@@ -1945,6 +2114,482 @@ is
       Status := No_Error;
    end Expt_Prim;
 
+
+   --  exact->inexact: an exact integer as the double nearest its value
+   --  (every fixnum is far inside a double's precision), an inexact number
+   --  unchanged.
+   procedure Exact_To_Inexact_Prim
+     (H      : Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with Pre => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 1, 1, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+
+      case Arr (1).Kind is
+         when Kind_Fixnum =>
+            Result := From_Flonum (Long_Float (Arr (1).N));
+            Status := No_Error;
+         when Kind_Flonum =>
+            Result := Arr (1);
+            Status := No_Error;
+         when others =>
+            null;
+      end case;
+   end Exact_To_Inexact_Prim;
+
+   --  The integer square root of a non-negative fixnum: the largest s with
+   --  s*s <= n, and whether that product is exactly n.  Binary search over
+   --  0 .. 46_341 -- the root of Fixnum_Max is 46340 -- with every product
+   --  taken in Integer_64 so no intermediate can overflow.  Pure integer
+   --  arithmetic on purpose: the float path below never has to justify a
+   --  range check hanging off the unanalyzed library sqrt.
+   procedure ISqrt
+     (N       : Fixnum;
+      S       : out Root_Range;
+      Perfect : out Boolean)
+     with Pre => N >= 0
+   is
+      Lo  : Natural range 0 .. 46_341 := 0;
+      Hi  : Natural range 0 .. 46_341 := 46_341;
+      Mid : Natural range 0 .. 46_341;
+      Sq  : Integer_64;
+   begin
+      while Lo < Hi loop
+         Mid := (Lo + Hi + 1) / 2;
+         Sq := Integer_64 (Mid) * Integer_64 (Mid);
+         if Sq <= Integer_64 (N) then
+            Lo := Mid;
+         else
+            Hi := Mid - 1;
+         end if;
+      end loop;
+      S := Lo;
+      Sq := Integer_64 (Lo) * Integer_64 (Lo);
+      Perfect := Sq = Integer_64 (N);
+   end ISqrt;
+
+   --  GNATprove does not yet model the floating-point manipulation
+   --  attributes ('Fraction, 'Exponent, 'Scaling, 'Adjacent -- all four were
+   --  rejected as "not yet supported"), so the three operations sqrt needs
+   --  from them are spelled out below in arithmetic it can see.  Every step
+   --  is a power of two, hence exact; the guards are unreachable for finite
+   --  doubles (which need at most ~1074 steps) and exist so the loops and
+   --  the conversions around them have constant bounds to prove against.
+
+   --  Split a positive double into f * 2**e with f in [0.5, 1), which is
+   --  what 'Fraction and 'Exponent would give.
+   procedure Decompose
+     (X : Long_Float;
+      F : out Long_Float;
+      E : out Integer)
+     with
+       Pre  => X > 0.0 and then X <= Long_Float'Last,
+       Post => F >= 0.5 and then F < 1.0
+         and then E >= -1_074 and then E <= 1_025,
+       Always_Terminates
+   is
+      FF : Long_Float := X;
+      EE : Integer range -1_074 .. 1_025 := 0;
+   begin
+      while FF >= 1.0 loop
+         pragma Loop_Invariant (FF >= 0.0);
+         pragma Loop_Invariant (FF <= Long_Float'Last);
+         pragma Loop_Variant (Decreases => 1_025 - EE);
+         if EE = 1_025 then
+            FF := 0.75;
+            exit;
+         end if;
+         FF := FF / 2.0;
+         EE := EE + 1;
+      end loop;
+      while FF < 0.5 loop
+         pragma Loop_Invariant (FF >= 0.0);
+         pragma Loop_Invariant (FF <= 1.0);
+         pragma Loop_Variant (Decreases => EE + 1_074);
+         if EE = -1_074 then
+            FF := 0.75;
+            exit;
+         end if;
+         FF := FF * 2.0;
+         EE := EE - 1;
+      end loop;
+      --  The second loop's exit gives the lower bound; the upper one comes
+      --  from the first loop's exit, with a clamp for the guard path so the
+      --  postcondition needs no loop invariant about floating-point scaling.
+      if FF >= 1.0 or else FF < 0.5 then
+         FF := 0.75;
+      end if;
+      F := FF;
+      E := EE;
+   end Decompose;
+
+   --  The 53-bit mantissa of a value in [0.5, 1) as an integer: one
+   --  multiply by the exact power, whose bounds then follow from F's.
+   function Mant_Of (F : Long_Float) return Integer_128
+     with
+       Pre  => F >= 0.5 and then F < 1.0,
+       Post => Mant_Of'Result >= 4_503_599_627_370_496
+         and then Mant_Of'Result <= 9_007_199_254_740_991
+   is
+      V : Long_Float;
+   begin
+      V := F * (2.0 ** 53);
+      return Integer_128 (V);
+   end Mant_Of;
+
+   --  The next double toward +inf (Up) or toward zero: the ulp is exactly
+   --  X / mantissa, and that division is bounded because the mantissa is at
+   --  least 2**52 -- the shape GNATprove discharges for a divisor of at least
+   --  one.  The postcondition is what lets the floor loops re-establish this
+   --  function's preconditions on every iteration; the fallback branches it
+   --  contains are unreachable for sqrt's candidates (they stay under
+   --  2e160, far below half the range) and exist only so the postcondition
+   --  needs no reasoning about a near-range sum.
+   function Step_Toward (X : Long_Float; Up : Boolean) return Long_Float
+     with
+       Pre  => X >= -Long_Float'Last and then X <= Long_Float'Last,
+       Post => Step_Toward'Result >= -Long_Float'Last
+         and then Step_Toward'Result <= Long_Float'Last
+   is
+      F : Long_Float;
+      E : Integer;
+      U : Long_Float;
+   begin
+      if X > Long_Float'Last then
+         return Long_Float'Last;
+      end if;
+      if X <= 0.0 then
+         --  Zero, a negative, or an odd input; sqrt's candidate is positive
+         --  and stays so.
+         return X;
+      end if;
+      Decompose (X, F, E);
+      if E < -1_021 then
+         --  Below the smallest normal every value shares one ulp; the sqrt
+         --  candidates never get here, since their roots stay far above the
+         --  denormal range.
+         return X;
+      end if;
+      U := X / Long_Float (Mant_Of (F));
+      if not Up then
+         return X - U;
+      end if;
+      if abs X < 1.0 or else abs U < 1.0
+        or else (abs X <= Long_Float'Last / 2.0
+                 and then abs U <= Long_Float'Last / 2.0)
+      then
+         return X + U;
+      end if;
+      return Long_Float'Last;
+   end Step_Toward;
+
+   --  Exact integer comparisons for the sqrt decision.  A double decomposes
+   --  into a mantissa below 2**53 and a power of two; squared, the products
+   --  need at most 109 bits, which Interfaces.Integer_128 holds -- so these
+   --  answers are exact where a floating-point product would be rounded by
+   --  up to half an ulp (which is what made a neighbour-of-the-fixed-point
+   --  test tie).  Every guard below is dead for the values sqrt compares --
+   --  a Newton result against its own radicand -- and exists so the
+   --  arithmetic around it has constant bounds to prove against.
+   function Sq_Le (C, X : Long_Float) return Boolean
+   is
+      Fc, Fx : Long_Float;
+      Ec, Ex : Integer;
+      MC, MX : Integer_128;
+      L      : Integer_128;
+      R      : Integer_128 range 0 .. 1_000_000_000_000_000_000_000_000_000_000_000;
+      D      : Integer;
+   begin
+      if not (C > 0.0) or else not (X > 0.0)
+        or else C > Long_Float'Last or else X > Long_Float'Last
+      then
+         return C <= X;
+      end if;
+      Decompose (C, Fc, Ec);
+      Decompose (X, Fx, Ex);
+      MC := Mant_Of (Fc);
+      MX := Mant_Of (Fx);
+
+      --  C = MC * 2**(Ec - 53), so C*C <= X reads as
+      --  MC*MC <= MX * 2**(Ex - 2*Ec + 53), with the shift in [0, 60] for
+      --  any pair this close together.
+      D := Ex - 2 * Ec + 53;
+      if D < 0 or else D > 60 then
+         return C <= X;
+      end if;
+
+      L := MC * MC;
+      R := MX;
+      for I in 1 .. D loop
+         pragma Loop_Invariant
+           (R <= 1_000_000_000_000_000_000_000_000_000_000_000);
+         --  The real value (at most 1e16 * 2**60) never reaches the
+         --  saturation point, so this guard only ever lets the doubling
+         --  happen; it is what makes the assignment's subtype check a
+         --  constant-bound question.
+         if R <= 500_000_000_000_000_000_000_000_000_000_000 then
+            R := R + R;
+         end if;
+      end loop;
+      return L <= R;
+   end Sq_Le;
+
+   --  Is the square of the midpoint between G and its successor at most X?
+   --  The midpoint itself is not representable (it has 54 significant bits),
+   --  so it is compared in its exact integer form:
+   --  m = (2*MG + 1) * 2**(Eg - 54), m*m = (2*MG+1)**2 * 2**(2*Eg - 108).
+   function Mid_Le (G, X : Long_Float) return Boolean
+   is
+      Fg, Fx : Long_Float;
+      Eg, Ex : Integer;
+      MG, MX : Integer_128;
+      T, L   : Integer_128;
+      R      : Integer_128 range 0 .. 1_000_000_000_000_000_000_000_000_000_000_000;
+      D      : Integer;
+   begin
+      if not (G > 0.0) or else not (X > 0.0)
+        or else G > Long_Float'Last or else X > Long_Float'Last
+      then
+         return G <= X;
+      end if;
+      Decompose (G, Fg, Eg);
+      Decompose (X, Fx, Ex);
+      MG := Mant_Of (Fg);
+      MX := Mant_Of (Fx);
+
+      D := Ex - 2 * Eg + 55;
+      if D < 0 or else D > 60 then
+         return G <= X;
+      end if;
+
+      T := 2 * MG + 1;
+      L := T * T;
+      R := MX;
+      for I in 1 .. D loop
+         pragma Loop_Invariant
+           (R <= 1_000_000_000_000_000_000_000_000_000_000_000);
+         if R <= 500_000_000_000_000_000_000_000_000_000_000 then
+            R := R + R;
+         end if;
+      end loop;
+      return L <= R;
+   end Mid_Le;
+
+   --  floor(sqrt(V)) for V below 2**126, by binary search: the root fits in
+   --  63 bits, and every product stays inside Integer_128.  What it must
+   --  give the proof is only that its arithmetic is safe and it terminates;
+   --  that the candidate is near the root -- and the floor loops below make
+   --  it the exact one -- is what the test suite checks.
+   procedure ISqrt128
+     (V : Integer_128;
+      R : out Wide_Root)
+     with
+       Pre  => V >= 0,
+       Always_Terminates
+   is
+      Lo  : Wide_Root := 0;
+      Hi  : Wide_Root := 9_223_372_036_854_775_808;
+      Mid : Wide_Root;
+      Sq  : Integer_128;
+   begin
+      while Lo < Hi loop
+         pragma Loop_Variant (Decreases => Hi - Lo);
+         Mid := (Lo + Hi + 1) / 2;
+         Sq := Mid * Mid;
+         if Sq <= V then
+            Lo := Mid;
+         else
+            Hi := Mid - 1;
+         end if;
+      end loop;
+      R := Lo;
+   end ISqrt128;
+
+   --  The principal square root of a non-negative double.  Newton's method
+   --  (seeded from the value's binary exponent) lands within a ulp of the
+   --  root; the two exact comparisons then make that the true floor and
+   --  choose the nearer neighbour across the midpoint, which is the
+   --  correctly rounded result.  Every operation outside the iteration is
+   --  integer or comparison arithmetic, so no range check hangs off an
+   --  unanalyzed result.
+   function Sqrt_Of (X : Long_Float) return Long_Float
+     with Pre => X >= 0.0 and then X <= Long_Float'Last
+   is
+      F0    : Long_Float;
+      E0    : Integer;
+      M2    : Integer_128;
+      K     : Integer;
+      V     : Integer_128;
+      R     : Wide_Root;
+      R53   : Integer_128;
+      P     : Integer;
+      G     : Long_Float;
+      Nudge : Natural range 0 .. 8 := 0;
+   begin
+      if X = 0.0 then
+         --  Includes a negative zero, whose root the IEEE rules define.
+         return X;
+      end if;
+
+      --  X = M * 2**(E0 - 53) with M in [2**52, 2**53): the power is
+      --  E0 - 53, not E0, and its parity decides whether one power moves
+      --  into the mantissa -- then both cases read X = M2 * 2**(2*K) and the
+      --  root is sqrt(M2) * 2**K.
+      Decompose (X, F0, E0);
+      M2 := Mant_Of (F0);
+      if E0 mod 2 /= 0 then
+         K := (E0 - 53) / 2;
+      else
+         M2 := M2 + M2;
+         K := (E0 - 54) / 2;
+      end if;
+
+      --  floor(sqrt(M2 * 2**72)) is floor(sqrt(M2) * 2**36): a 63-bit root
+      --  of a value below 2**126, all in Integer_128.  Rounding it to 53
+      --  bits -- R is in [2**62, 2**63), so the shift is ten -- gives a
+      --  candidate within a small fraction of an ulp of the true root.
+      V := M2 * 4_722_366_482_869_645_213_696;
+      ISqrt128 (V, R);
+      --  R = sqrt(M2) * 2**36 to within one, so R53 = R / 2**10 is
+      --  sqrt(M2) * 2**26 to within a fraction of a unit in the last place.
+      R53 := (R + 512) / 1024;
+      G := Long_Float (R53);
+
+      --  Scale by 2**(K - 26).  The doubling is guarded by a bound the
+      --  real value never reaches (2**529), which is what makes each step's
+      --  range check a constant-bound question.
+      P := K - 26;
+      if P >= 0 then
+         for I in 1 .. P loop
+            pragma Loop_Invariant (G >= 0.0);
+            pragma Loop_Invariant (G <= 2.0E160);
+            if G <= 1.0E160 then
+               G := G * 2.0;
+            end if;
+         end loop;
+      else
+         for I in 1 .. (0 - P) loop
+            pragma Loop_Invariant (G >= 0.0);
+            pragma Loop_Invariant (G <= 9.1E15);
+            G := G / 2.0;
+         end loop;
+      end if;
+
+      --  The candidate is positive for every real input (the root of a
+      --  positive value); the guard exists so the callees' G > 0.0
+      --  preconditions are facts rather than hopes.
+      if not (G > 0.0) then
+         return X;
+      end if;
+
+      --  Step down while G's square exceeds X, then up while the
+      --  successor's does not: G becomes the exact floor of the root.
+      while Nudge < 8 and then not Sq_Le (G, X) loop
+         pragma Loop_Variant (Decreases => 8 - Nudge);
+         G := Step_Toward (G, False);
+         Nudge := Nudge + 1;
+      end loop;
+      Nudge := 0;
+      while Nudge < 8
+        and then Sq_Le (Step_Toward (G, True), X)
+      loop
+         pragma Loop_Variant (Decreases => 8 - Nudge);
+         G := Step_Toward (G, True);
+         Nudge := Nudge + 1;
+      end loop;
+
+      --  G*G <= X < next(G)*next(G): round across the midpoint.
+      if Mid_Le (G, X) then
+         return Step_Toward (G, True);
+      end if;
+      return G;
+   end Sqrt_Of;
+
+   --  sqrt: exact when the argument is exact and the root is (R7RS), which
+   --  the integer search settles without touching a float; otherwise
+   --  Sqrt_Of, whose result only ever flows into check-free float contexts
+   --  -- a flonum value and the writer's formatter.
+   procedure Sqrt_Prim
+     (H      : Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with Pre => H.Ready
+   is
+      Arr     : Value_Array;
+      Len     : Natural;
+      Good    : Boolean;
+      N       : Fixnum;
+      S       : Root_Range;
+      Perfect : Boolean;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 1, 1, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+
+      if Arr (1).Kind = Kind_Fixnum then
+         Get_Fixnum (Arr (1), N, Good);
+         if not Good then
+            return;
+         end if;
+         if N < 0 then
+            Status := Error_Range;
+            return;
+         end if;
+         ISqrt (N, S, Perfect);
+         if Perfect then
+            Result := From_Fixnum (Integer_64 (S));
+         else
+            Result := From_Flonum (Sqrt_Of (Long_Float (N)));
+         end if;
+         Status := No_Error;
+      elsif Arr (1).Kind = Kind_Flonum then
+         if Arr (1).F /= Arr (1).F then
+            --  NaN roots to NaN; the guard also keeps Sqrt_Of's precondition
+            --  honest, since NaN satisfies no comparison at all.
+            Result := Arr (1);
+            Status := No_Error;
+            return;
+         end if;
+         if Arr (1).F > Long_Float'Last then
+            --  Positive infinity roots to itself.
+            Result := Arr (1);
+            Status := No_Error;
+            return;
+         end if;
+         if Arr (1).F < 0.0 then
+            Status := Error_Range;
+            return;
+         end if;
+         Result := From_Flonum (Sqrt_Of (Arr (1).F));
+         Status := No_Error;
+      end if;
+   end Sqrt_Prim;
+
    procedure Call
      (H      : in out Heap_Type;
       P      : Primitive_Id;
@@ -2033,6 +2678,12 @@ is
 
          when P_Expt =>
             Expt_Prim (H, Args, Result, Status);
+
+         when P_Exact_To_Inexact =>
+            Exact_To_Inexact_Prim (H, Args, Result, Status);
+
+         when P_Sqrt =>
+            Sqrt_Prim (H, Args, Result, Status);
 
          when P_Length =>
             Length_Prim (H, Args, Result, Status);

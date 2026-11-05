@@ -95,6 +95,96 @@ Consequences:
   at 60 s.  Revisit it if a wide fixnum (or `expt`, `gcd`, ...) is ever needed;
   the include path can be added to `tr7.gpr` at that point.
 
+## Flonum batch: what the last digit cost
+
+The `%g` formatter and `sqrt` took several rounds; the failures are worth
+recording because each looked like a different bug:
+
+- **A double subtraction in the digit loop.**  Counting whole units out of the
+  remainder already leaves the remainder in `M`; subtracting the digit again
+  went negative (`0.5 - 1.0`), which zeroed every digit after the first.  The
+  symptom was systematic (`1.5` printed as `1.0`, `0.125` as `0.01`) and the
+  fix was deleting one term.
+- **The fraction's zero count was off by one**: `0.5` has its first digit in
+  the tenths place, so `Exp = -1` means `-Exp - 1` zeros, not `-Exp`.
+- **Newton's fixed point is not the root.**  `g = (g + x/g)/2` settles one ulp
+  beside `sqrt(x)` for many inputs -- every tested root was 1-2 ulps from
+  libm.  Comparing the neighbours' *squares* cannot fix it: the products
+  round to the same ulp as the distances being compared, so the test ties.
+  The exact fix was to compare against the **midpoint squared** in integer
+  arithmetic: a double's mantissa (53 bits) squared is 106 bits and the
+  midpoint's `(2*MG+1)**2` is 108, both inside `Interfaces.Integer_128`, with
+  the power-of-two factors aligned by an exponent difference the callers keep
+  in `[0, 60]`.  After that, `(sqrt 2)` matches libm bit for bit -- as do
+  `3`, `5`, `10`, `7`, `99`, `123456`.
+- **The reader's digit-by-digit `/10` drifts.**  Parsing `0.1` as
+  `1/10` is one rounding (correct), but `0.31622776601683794` needed seventeen
+  divisions and accumulated enough error to accept -- and emit -- the wrong
+  string, which made the writer's round-trip check agree with itself rather
+  than with the value.  One multiply or divide by an **exact power of ten**
+  (every `10**k` up to `10**22` still has all its bits in a double) is a
+  single rounding; a table of those23 constants is the whole fix.  Beyond
+  `10**22` the shift still steps and rounds per digit -- documented as the
+  wide-exponent path.
+- GNAT has no `'Decompose` attribute (and no `Long_Elementary_Functions`),
+  but `'Fraction` and `'Exponent` -- function-style, `T'Fraction (X)` -- give
+  the same split.  Ada also has **no `Character` arithmetic**: `'0' + D` does
+  not compile; it is `'Val (Pos ('0') + D)` everywhere.
+- **The float-in-loop rule, found by bisection**: a float multiplication or
+  addition *inside a loop* times out on its overflow check even at 90
+  seconds, while the identical operation straight-line proves in seconds and
+  looped *divisions* prove fine.  The cause is not the operation but
+  GNATprove's **invariant generation** over floating point, which does not
+  converge: the check waits on a generated invariant that never arrives.
+  The fix is to give **every** loop that touches floats a complete explicit
+  invariant set -- sign *and* magnitude, including nested loops (the unit
+  counter inside the digit loop needed its own `M <= 10 - D` before the
+  outer loop's bound could close).  Reproduced in a five-procedure sandbox
+  before touching the real code: same loops, same checks, minutes apart in
+  outcome.  Consequence for style: no float loop in this codebase ships
+  without two explicit invariants.
+- **A bound must be re-establishable to be useful in a loop precondition**:
+  `Step_Toward`'s precondition could not simply say `X <= 1e160`, because
+  the up-step *increases* its argument and no fixed bound survives it.  The
+  shape that works: a precondition over the full range, a postcondition over
+  the full range (both trivially maintained), and dead fallback branches
+  inside so the postcondition needs no reasoning about near-range sums --
+  unreachable for the actual candidates, which stay under 2e160.
+- **What GNATprove can and cannot prove about floating-point bounds** --
+  this decided the whole shape of the code.  It *cannot* prove a product or
+  quotient bounded from a reciprocal guard (`|A| <= Last/|B| => |A*B| <=
+  Last`, `G >= X/Last => X/G <= Last`): each timed out at 90 seconds, so it
+  is a capability gap, not a budget one.  What it *does* discharge quickly is
+  **constant-bound branches**: one operand below one, or both below a fixed
+  threshold whose product/sum is provably inside the range.  The float paths
+  in `+`, `-` and `*` are therefore written as those branches with an
+  `Error_Overflow` otherwise -- no false rejections for small operands, and
+  the rejected band (two operands both above ~9e307 adding, or both above
+  ~1.3e154 multiplying) is recorded as a v1 limit.
+- **Newton's method had to go**, not because of the iteration but because
+  `X / G` carries a division bound no prover here could discharge (G's
+  lower bound would have to survive a halving loop, which no static
+  invariant can express).  The replacement builds the candidate on the
+  *integer* side: `X = M2 * 2**(2*K)`, `floor(sqrt(M2 * 2**72))` in
+  `Integer_128` (a 63-bit root of a value below 2**126), rounded to 53 bits
+  and scaled by guarded doublings -- then the exact `Sq_Le`/`Mid_Le`
+  comparisons finish the job.  Two algebra errors were caught by the test
+  table on the way: the power is `E - 53`, not `E` (the mantissa already
+  absorbed 53 bits), and the rounding shift leaves `sqrt(M2) * 2**26`, so
+  the scale is `K - 26`, not `K - 36` -- each was visible as a value off by
+  exactly a power of two.
+- **GNATprove does not model the floating-point manipulation attributes at
+  all**: `'Fraction`, `'Exponent`, `'Scaling` and `'Adjacent` were each
+  rejected as *"non-static attribute ... is not yet supported"* -- a hard
+  analysis error, not an unprovable check, so no contract shape can hide
+  them.  The fix was to spell out what they do in arithmetic the prover
+  sees: a `Decompose` of exact halving/doubling loops (with a clamp after
+  them so the `[0.5, 1)` postcondition needs no floating-point loop
+  invariant), the mantissa as fifty-three doublings plus a conversion whose
+  bound comes from a dead guard, the ulp as a scaled one, and the neighbour
+  as `X +/- ulp`.  Power-of-two scaling is exact, so the results are the
+  attributes' results -- only the spelling changed.
+
 ## Ada/SPARK idiom notes from the M0 proof loop
 
 - A single readiness flag beats two: `Engine.Ready` was dropped in favour of

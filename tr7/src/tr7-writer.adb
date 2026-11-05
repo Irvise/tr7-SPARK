@@ -3,6 +3,7 @@ with Interfaces; use Interfaces;
 with Tr7.Cells; use Tr7.Cells;
 with Tr7.Config; use Tr7.Config;
 with Tr7.Pairs; use Tr7.Pairs;
+with Tr7.Reader;
 
 package body Tr7.Writer with
    SPARK_Mode => On
@@ -142,6 +143,280 @@ is
       end loop;
    end Put_Integer;
 
+   --  One character at the end of the buffer.  Capacity is checked here, at
+   --  the single point where the cursor moves, so every caller's increment
+   --  question has one answer; the fixed bounds below make it unreachable.
+   procedure Append_Char
+     (S : in out String;
+      K : in out Natural;
+      C : Character)
+     with
+       Pre  => S'First = 1 and then K <= S'Length,
+       Post => K <= S'Length
+   is
+   begin
+      if K >= S'Length then
+         return;
+      end if;
+      K := K + 1;
+      S (K) := C;
+   end Append_Char;
+
+   --  Format a positive finite value with P significant digits, %g style:
+   --  fixed notation while the exponent suits (-4 <= exp < P), scientific
+   --  otherwise, trailing zeros stripped but one digit always kept after the
+   --  point so the result reads back as a flonum.  The rounding is on the
+   --  remainder after the P-th digit.
+   procedure Format_G
+     (X   : Long_Float;
+      P   : Positive;
+      S   : out String;
+      Len : out Natural)
+     with
+       Pre  => S'First = 1
+         and then S'Length >= 48
+         and then X > 0.0
+         and then P <= 17,
+       Post => Len <= S'Length
+   is
+      M      : Long_Float := X;
+      Exp    : Integer range -400 .. 400 := 0;
+      --  Started full: only the first N_Dig entries are ever read, but flow
+      --  analysis cannot follow writes through a computed index.
+      Digs   : String (1 .. 17) := (others => '0');
+      N_Dig  : Natural range 0 .. 17 := 0;
+      D      : Natural range 0 .. 9;
+      K      : Natural := 0;
+      Last   : Natural range 0 .. 17;
+      Carry  : Boolean;
+      AE     : Natural range 0 .. 400;
+   begin
+      S := (others => ' ');
+
+      --  Scale into [1, 10).  A finite double needs at most 309 steps; the
+      --  guards are the prover's answer, and are unreachable in practice.
+      while M >= 10.0 loop
+         pragma Loop_Invariant (M >= 0.0);
+         pragma Loop_Invariant (M <= Long_Float'Last);
+         exit when Exp = 400;
+         M := M / 10.0;
+         Exp := Exp + 1;
+      end loop;
+      while M < 1.0 loop
+         pragma Loop_Invariant (M >= 0.0);
+         pragma Loop_Invariant (M <= 10.0);
+         exit when Exp = -400;
+         M := M * 10.0;
+         Exp := Exp - 1;
+      end loop;
+      if M >= 10.0 and then Exp < 400 then
+         --  Rounding can land exactly on 10.0; step back once.
+         M := M / 10.0;
+         Exp := Exp + 1;
+      end if;
+
+      --  P digits, each taken by counting units (no float-to-integer
+      --  conversion, hence no range check hanging off an unanalyzed result).
+      --  The scaling above leaves M below ten; the clamp is unreachable and
+      --  exists so the loop's entry bound is a path fact rather than a
+      --  chain of floating-point steps the provers do not finish.
+      if M > 10.0 then
+         M := 5.0;
+      end if;
+      while N_Dig < P loop
+         pragma Loop_Invariant (M >= 0.0);
+         pragma Loop_Invariant (M <= 10.0);
+         D := 0;
+         while M >= 1.0 and then D < 9 loop
+            pragma Loop_Invariant (M >= 0.0);
+            pragma Loop_Invariant (M <= 10.0);
+            M := M - 1.0;
+            D := D + 1;
+         end loop;
+         --  Nine units came out of a value under ten, so the remainder is
+         --  below one; the clamp turns that into a path fact for the shift
+         --  below (and is unreachable, so it never changes a digit).
+         if M >= 1.0 then
+            M := 0.5;
+         end if;
+         N_Dig := N_Dig + 1;
+         Digs (N_Dig) := Character'Val (Character'Pos ('0') + D);
+         --  M is already the remainder (the loop above counted whole units
+         --  out of it), so this is just the shift to the next place.
+         M := M * 10.0;
+      end loop;
+
+      --  Round on what remains.
+      if M >= 5.0 then
+         Carry := True;
+         for I in reverse 1 .. N_Dig loop
+            exit when not Carry;
+            if Digs (I) = '9' then
+               Digs (I) := '0';
+            elsif Digs (I) < '9' then
+               Digs (I) := Character'Val (Character'Pos (Digs (I)) + 1);
+               Carry := False;
+            end if;
+         end loop;
+         if Carry then
+            --  Every digit was a 9: the value gained a place, so 9.99 with
+            --  two digits becomes 1.00 and the exponent steps up.
+            Digs (1) := '1';
+            for I in 2 .. N_Dig loop
+               Digs (I) := '0';
+            end loop;
+            if Exp < 400 then
+               Exp := Exp + 1;
+            end if;
+         end if;
+      end if;
+
+      if Exp >= -4 and then Exp < P then
+         if Exp >= 0 then
+            for I in 1 .. Exp + 1 loop
+               pragma Loop_Invariant (K <= S'Length);
+               Append_Char (S, K, Digs (I));
+            end loop;
+            if Exp + 1 >= N_Dig then
+               Append_Char (S, K, '.');
+               Append_Char (S, K, '0');
+            else
+               Last := Exp + 1;
+               for I in Exp + 2 .. N_Dig loop
+                  if Digs (I) /= '0' then
+                     Last := I;
+                  end if;
+               end loop;
+               Append_Char (S, K, '.');
+               for I in Exp + 2 .. Last loop
+               pragma Loop_Invariant (K <= S'Length);
+                  Append_Char (S, K, Digs (I));
+               end loop;
+               if Last = Exp + 1 then
+                  Append_Char (S, K, '0');
+               end if;
+            end if;
+         else
+            Append_Char (S, K, '0');
+            Append_Char (S, K, '.');
+            --  0.5 has its first digit in the tenths place: -Exp - 1 zeros.
+            for I in 1 .. (-Exp - 1) loop
+               pragma Loop_Invariant (K <= S'Length);
+               Append_Char (S, K, '0');
+            end loop;
+            Last := 0;
+            for I in 1 .. N_Dig loop
+               if Digs (I) /= '0' then
+                  Last := I;
+               end if;
+            end loop;
+            if Last = 0 then
+               Append_Char (S, K, '0');
+            else
+               for I in 1 .. Last loop
+               pragma Loop_Invariant (K <= S'Length);
+                  Append_Char (S, K, Digs (I));
+               end loop;
+            end if;
+         end if;
+      else
+         Append_Char (S, K, Digs (1));
+         Append_Char (S, K, '.');
+         if N_Dig = 1 then
+            Append_Char (S, K, '0');
+         else
+            Last := 1;
+            for I in 2 .. N_Dig loop
+               if Digs (I) /= '0' then
+                  Last := I;
+               end if;
+            end loop;
+            for I in 2 .. Last loop
+               pragma Loop_Invariant (K <= S'Length);
+               Append_Char (S, K, Digs (I));
+            end loop;
+            if Last = 1 then
+               Append_Char (S, K, '0');
+            end if;
+         end if;
+         Append_Char (S, K, 'e');
+         if Exp < 0 then
+            Append_Char (S, K, '-');
+            AE := -Exp;
+         else
+            Append_Char (S, K, '+');
+            AE := Exp;
+         end if;
+         --  At least two exponent digits, more when needed.
+         if AE >= 100 then
+            Append_Char
+              (S, K, Character'Val (Character'Pos ('0') + AE / 100));
+         end if;
+         Append_Char
+           (S, K, Character'Val (Character'Pos ('0') + (AE / 10) mod 10));
+         Append_Char
+           (S, K, Character'Val (Character'Pos ('0') + AE mod 10));
+      end if;
+
+      Len := K;
+   end Format_G;
+
+   --  Write a flonum so that reading it back gives the same value: try
+   --  increasing precision until the reader agrees, then fall back to the
+   --  full 17 digits (correct decimal, and round-trips by construction of
+   --  IEEE doubles).
+   procedure Put_Float
+     (X  : Long_Float;
+      B  : in out Output_Buffer;
+      Ok : in out Boolean)
+   is
+      S    : String (1 .. 64);
+      Len  : Natural;
+      Y    : Long_Float;
+      Is_F : Boolean;
+      Good : Boolean;
+      Mag  : Long_Float;
+   begin
+      if not Ok then
+         return;
+      end if;
+      if X /= X then
+         Put (B, "+nan.0", Ok);
+         return;
+      end if;
+      if X > Long_Float'Last then
+         Put (B, "+inf.0", Ok);
+         return;
+      end if;
+      if X < -Long_Float'Last then
+         Put (B, "-inf.0", Ok);
+         return;
+      end if;
+      if X = 0.0 then
+         --  The sign of a negative zero is not kept (v1): both print as 0.0.
+         Put (B, "0.0", Ok);
+         return;
+      end if;
+
+      if X < 0.0 then
+         Put (B, '-', Ok);
+         Mag := -X;
+      else
+         Mag := X;
+      end if;
+
+      for P in 1 .. 16 loop
+         Format_G (Mag, P, S, Len);
+         Tr7.Reader.Parse_Float (S (1 .. Len), Is_F, Y, Good);
+         if Good and then Is_F and then Y = Mag then
+            Put (B, S (1 .. Len), Ok);
+            return;
+         end if;
+      end loop;
+      Format_G (Mag, 17, S, Len);
+      Put (B, S (1 .. Len), Ok);
+   end Put_Float;
+
    procedure Write_Internal
      (H       : Heap_Type;
       V       : Value;
@@ -273,6 +548,9 @@ is
 
          when Kind_Fixnum =>
             Put_Integer (V.N, B, Ok);
+
+         when Kind_Flonum =>
+            Put_Float (V.F, B, Ok);
 
          when Kind_Character =>
             if Display then

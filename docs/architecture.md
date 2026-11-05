@@ -187,6 +187,29 @@ and -1 are answered without a loop, any exponent above 63 overflows (a base of
 at least 2 cannot stay in a fixnum longer), and a negative power of anything
 else is `not implemented` because v1 has no rationals.
 
+## Flonums
+
+A flonum is an IEEE double in the value record -- immediate like a fixnum, no
+cell, invisible to the collector.  The reader parses decimals with at most one
+rounding (a single multiply or divide by an exact power of ten, which exists up
+to `10**22`), the writer prints the shortest string that reads back to the same
+value (increasing precision until `Parse_Float` agrees, with `%g`'s choice
+between fixed and scientific notation), and `exact->inexact` converts a fixnum
+to the nearest double.
+
+Arithmetic and comparison switch paths when any operand is inexact: one
+inexact operand makes the whole operation inexact (R7RS), every operand still
+has to be a number, and a NaN makes every comparison false for free.
+
+`sqrt` is exact when the argument is exact and the root is (R7RS) -- an
+integer binary search settles that without touching a float -- and otherwise
+Newton's method seeded from the value's own binary exponent, followed by two
+*exact* comparisons: `Sq_Le` and `Mid_Le` compare squares and the midpoint's
+square on `Interfaces.Integer_128` (a double's mantissa squared needs at most
+109 bits, which fits), so the floor and the rounding decision are exact where
+a floating-point product would tie.  That is what makes `(sqrt 2)` come out
+`1.4142135623730951`, the same double libm returns.
+
 ## Errors
 
 Primitives report `Error_Code`, not a bare boolean: `Call` returns

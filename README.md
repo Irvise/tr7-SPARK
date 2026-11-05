@@ -52,8 +52,13 @@ Lambdas take rest arguments (`(lambda (a . rest))`) and `define` accepts the
 its test/body/step loop over three frame kinds with parallel steps
 (`tests/do.scm`).
 
-Not yet present: flonums, `call/cc`, ports beyond strings, the C ABI body,
-and `syntax-rules`.
+Flonums are IEEE doubles: decimal literals read with a single rounding, the
+writer prints the shortest string that reads back to the same value, `+`, `-`,
+`*` and the comparisons take mixed operands (inexact wins), `exact->inexact`
+converts, and `sqrt` returns the correctly rounded root (`tests/flonums.scm`).
+
+Not yet present: `/`, `call/cc`, ports beyond strings, the C ABI body, and
+`syntax-rules`.
 
 ## Build
 

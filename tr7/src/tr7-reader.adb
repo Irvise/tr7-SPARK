@@ -122,6 +122,13 @@ is
          I := I + 1;
       end loop;
 
+      --  The whole token has to be digits: "1.5" is a flonum, "1e3" is a
+      --  flonum, and "1abc" is a symbol -- none of them the integer 1.
+      if I <= Text'Last then
+         Is_Integer := False;
+         return;
+      end if;
+
       if Neg then
          N := -Acc;
       else
@@ -129,6 +136,200 @@ is
       end if;
       Ok := N in Fixnum_Min .. Fixnum_Max;
    end Parse_Integer;
+
+   --  Powers of ten up to 10**22: every one of them still has all its bits
+   --  in a double (10**22 = 2**22 * 5**22 and 5**22 fits in 53), so a single
+   --  multiply or divide by one of them is a single rounding -- unlike a
+   --  digit-by-digit loop, which rounds once per step and drifts.
+   Ten_Powers : constant array (0 .. 22) of Long_Float :=
+     (0  => 1.0E00,  1  => 1.0E01,  2  => 1.0E02,  3  => 1.0E03,
+      4  => 1.0E04,  5  => 1.0E05,  6  => 1.0E06,  7  => 1.0E07,
+      8  => 1.0E08,  9  => 1.0E09,  10 => 1.0E10,  11 => 1.0E11,
+      12 => 1.0E12,  13 => 1.0E13,  14 => 1.0E14,  15 => 1.0E15,
+      16 => 1.0E16,  17 => 1.0E17,  18 => 1.0E18,  19 => 1.0E19,
+      20 => 1.0E20,  21 => 1.0E21,  22 => 1.0E22);
+
+   --  Parse a decimal: digits with an optional point and an optional
+   --  exponent.  The mantissa keeps up to 18 digits -- past double
+   --  precision, and small enough that the multiply cannot overflow -- and
+   --  digits dropped beyond that only cost precision, with pre-point ones
+   --  counted into the exponent so the magnitude stays right.  Out of range
+   --  is a failed parse (a read error), never a silently wrong value.
+   procedure Parse_Float
+     (Text     : String;
+      Is_Float : out Boolean;
+      X        : out Long_Float;
+      Ok       : out Boolean)
+   is
+      I      : Natural;
+      Neg    : Boolean := False;
+      Mant   : Integer_64 := 0;
+      Kept : Natural range 0 .. 18 := 0;
+      Extra  : Natural range 0 .. Max_Text := 0;
+      Frac   : Natural range 0 .. 18 := 0;
+      Exp    : Integer range -99_999 .. 99_999 := 0;
+      E_Neg  : Boolean := False;
+      Seen   : Boolean := False;
+      D      : Integer_64;
+      Total  : Integer;
+      Mag    : Long_Float;
+      Limit  : constant Long_Float := 1.0E307;
+   begin
+      Is_Float := False;
+      X := 0.0;
+      Ok := False;
+      if Text'Length = 0 then
+         return;
+      end if;
+
+      I := Text'First;
+      if Is_Sign (Text (I)) then
+         Neg := Text (I) = '-';
+         I := I + 1;
+         if I > Text'Last then
+            return;
+         end if;
+      end if;
+
+      --  Integer part.
+      while I <= Text'Last and then Is_Digit (Text (I)) loop
+         pragma Loop_Invariant (I >= Text'First);
+         pragma Loop_Invariant (I <= Text'Last);
+         pragma Loop_Invariant (Mant >= 0);
+         Seen := True;
+         D := Integer_64 (Character'Pos (Text (I)) - Character'Pos ('0'));
+         if Kept < 18 and then Mant <= (Integer_64'Last - D) / 10 then
+            Mant := Mant * 10 + D;
+            Kept := Kept + 1;
+         elsif Extra < Max_Text then
+            Extra := Extra + 1;
+         end if;
+         I := I + 1;
+      end loop;
+
+      --  Fractional part.
+      if I <= Text'Last and then Text (I) = '.' then
+         I := I + 1;
+         while I <= Text'Last and then Is_Digit (Text (I)) loop
+            pragma Loop_Invariant (I >= Text'First);
+            pragma Loop_Invariant (I <= Text'Last);
+            pragma Loop_Invariant (Frac <= Kept);
+            pragma Loop_Invariant (Mant >= 0);
+            Seen := True;
+            D := Integer_64 (Character'Pos (Text (I)) - Character'Pos ('0'));
+            if Kept < 18 and then Mant <= (Integer_64'Last - D) / 10 then
+               Mant := Mant * 10 + D;
+               Kept := Kept + 1;
+               Frac := Frac + 1;
+            end if;
+            I := I + 1;
+         end loop;
+      end if;
+
+      if not Seen then
+         return;
+      end if;
+
+      --  Exponent.
+      if I <= Text'Last and then To_Lower (Text (I)) = 'e' then
+         I := I + 1;
+         if I > Text'Last then
+            return;
+         end if;
+         if Is_Sign (Text (I)) then
+            E_Neg := Text (I) = '-';
+            I := I + 1;
+            if I > Text'Last then
+               return;
+            end if;
+         end if;
+         if not Is_Digit (Text (I)) then
+            return;
+         end if;
+         while I <= Text'Last and then Is_Digit (Text (I)) loop
+            pragma Loop_Invariant (I >= Text'First);
+            pragma Loop_Invariant (I <= Text'Last);
+            pragma Loop_Invariant (Exp >= 0);
+            if Exp < 10_000 then
+               Exp := Exp * 10
+                 + (Character'Pos (Text (I)) - Character'Pos ('0'));
+            end if;
+            I := I + 1;
+         end loop;
+         if E_Neg then
+            Exp := -Exp;
+         end if;
+      end if;
+
+      --  Anything left means the token is not a number after all.
+      if I <= Text'Last then
+         return;
+      end if;
+
+      Is_Float := True;
+
+      Total := Extra - Frac + Exp;
+      if Total > 308 then
+         return;
+      end if;
+
+      Mag := Long_Float (Mant);
+      if Total >= -22 and then Total <= 22 then
+         --  One operation, one rounding: the correctly rounded value of the
+         --  decimal.  This covers every exponent ordinary notation uses,
+         --  which is what makes 0.1 read as the same double every other
+         --  Scheme reads it as.
+         if Total >= 0 then
+            if Ten_Powers (Total) > 1.0E22 or else Mag > 1.0E286 then
+               return;
+            end if;
+            Mag := Mag * Ten_Powers (Total);
+         else
+            if Ten_Powers (-Total) < 1.0 then
+               return;
+            end if;
+            Mag := Mag / Ten_Powers (-Total);
+         end if;
+      elsif Total >= -400 then
+         --  Beyond 10**22 no exact power exists in a double, so the shift
+         --  has to be stepped and rounds once per step: right for ordinary
+         --  purposes, documented as the wide-exponent path.  The guards are
+         --  unreachable (the table holds at most 10**22, the mantissa at
+         --  most 18 digits) and exist so the products have constant bounds.
+         if Total > 0 then
+            if Mag > 1.0E307 then
+               return;
+            end if;
+            for K in 1 .. Total loop
+               pragma Loop_Invariant (Mag >= 0.0);
+               pragma Loop_Invariant (Mag <= 1.0E308);
+               if Mag > Limit then
+                  return;
+               end if;
+               Mag := Mag * 10.0;
+            end loop;
+         else
+            for K in 1 .. -Total loop
+               pragma Loop_Invariant (Mag >= 0.0);
+               pragma Loop_Invariant (Mag <= 1.0E19);
+               if Mag > 1.0E19 then
+                  return;
+               end if;
+               Mag := Mag / 10.0;
+            end loop;
+         end if;
+      else
+         --  Underflows to zero, which is what the value is.
+         Mag := 0.0;
+      end if;
+
+      if Neg then
+         X := -Mag;
+      else
+         X := Mag;
+      end if;
+      Ok := True;
+   end Parse_Float;
 
    procedure Read_Internal
      (H      : in out Heap_Type;
@@ -351,6 +552,8 @@ is
       Ok     : Boolean;
       Is_Num : Boolean;
       Num    : Integer_64;
+      Is_Flt : Boolean;
+      Flt    : Long_Float;
       Quote_Sym : Value;
       Quoted    : Value;
       Tail      : Value;
@@ -618,6 +821,16 @@ is
             return;
          end if;
          Result := From_Fixnum (Num);
+         Status := Read_Ok;
+         return;
+      end if;
+
+      Parse_Float (Buf (1 .. Len), Is_Flt, Flt, Ok);
+      if Is_Flt then
+         if not Ok then
+            return;
+         end if;
+         Result := From_Flonum (Flt);
          Status := Read_Ok;
          return;
       end if;

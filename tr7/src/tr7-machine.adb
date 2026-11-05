@@ -2350,6 +2350,7 @@ is
       Valid : Boolean;
    begin
       if Is_Fixnum (M.Ctl)
+        or else Is_Flonum (M.Ctl)
         or else Is_Boolean (M.Ctl)
         or else Is_Character (M.Ctl)
         or else Is_Void (M.Ctl)
