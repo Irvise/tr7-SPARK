@@ -173,6 +173,49 @@ is
          and then Data'Length <= Max_Text,
        Post => H.Ready and then (if Ok then Result.Index in Valid_Cell_Index);
 
+   --  A string port over the text of a string value; the text is copied
+   --  into the port itself, so no handle is involved.
+   procedure New_Input_Port
+     (H      : in out Heap_Type;
+      Source : Value;
+      Result : out Handle;
+      Ok     : out Boolean)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready and then (if Ok then Result.Index in Valid_Cell_Index);
+
+   procedure New_Output_Port
+     (H      : in out Heap_Type;
+      Result : out Handle;
+      Ok     : out Boolean)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready and then (if Ok then Result.Index in Valid_Cell_Index);
+
+   --  Move a port's position (input) or length (output).
+   procedure Set_Port_Pos
+     (H   : in out Heap_Type;
+      V   : Value;
+      Pos : Natural;
+      Ok  : out Boolean)
+     with
+       Pre  => H.Ready and then Pos <= Max_Text,
+       Post => H.Ready;
+
+   --  Replace an output port's text (the caller has already checked the
+   --  length against Max_Text).
+   procedure Set_Port_Text
+     (H    : in out Heap_Type;
+      V    : Value;
+      Text : String;
+      Ok   : out Boolean)
+     with
+       Pre  => H.Ready
+         and then Text'First >= 1
+         and then Text'Last < Natural'Last
+         and then Text'Length <= Max_Text,
+       Post => H.Ready;
+
    procedure New_Closure
      (H      : in out Heap_Type;
       Params : Value;

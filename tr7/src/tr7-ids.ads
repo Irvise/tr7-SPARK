@@ -59,6 +59,15 @@ is
       P_Modulo,
       P_Expt,
       P_Sqrt,
-      P_Exact_To_Inexact);
+      P_Exact_To_Inexact,
+      P_Open_Input_String,
+      P_Open_Output_String,
+      P_Get_Output_String,
+      P_Read,
+      P_Read_Char,
+      P_Peek_Char,
+      P_Char_Ready,
+      P_Port_P,
+      P_Eof_Object_P);
 
 end Tr7.Ids;

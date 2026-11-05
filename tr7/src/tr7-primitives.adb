@@ -4,6 +4,7 @@ with Tr7.Cells; use Tr7.Cells;
 with Tr7.Config; use Tr7.Config;
 with Tr7.Pairs; use Tr7.Pairs;
 with Tr7.Writer; use Tr7.Writer;
+with Tr7.Reader;
 
 package body Tr7.Primitives with
    SPARK_Mode => On
@@ -74,6 +75,15 @@ is
          when P_Expt               => return "expt";
          when P_Sqrt               => return "sqrt";
          when P_Exact_To_Inexact   => return "exact->inexact";
+         when P_Open_Input_String  => return "open-input-string";
+         when P_Open_Output_String => return "open-output-string";
+         when P_Get_Output_String  => return "get-output-string";
+         when P_Read               => return "read";
+         when P_Read_Char          => return "read-char";
+         when P_Peek_Char          => return "peek-char";
+         when P_Char_Ready         => return "char-ready?";
+         when P_Port_P             => return "port?";
+         when P_Eof_Object_P       => return "eof-object?";
       end case;
    end Name_Of;
 
@@ -775,6 +785,21 @@ is
                Res := Valid and then Kind = Cell_Vector;
             end;
          end if;
+      elsif P = P_Port_P then
+         Res := Is_Handle (Arr (1));
+         if Res then
+            declare
+               Kind  : Cell_Kind;
+               Valid : Boolean;
+            begin
+               Kind_Of (H, To_Handle (Arr (1)), Kind, Valid);
+               Res := Valid
+                 and then (Kind = Cell_Input_Port
+                             or else Kind = Cell_Output_Port);
+            end;
+         end if;
+      elsif P = P_Eof_Object_P then
+         Res := Is_EOF (Arr (1));
       elsif P = P_String_P then
          Res := Is_Handle (Arr (1));
          if Res then
@@ -805,14 +830,121 @@ is
       Status := No_Error;
    end Predicate;
 
+   --  Is V a port of the requested direction?
+   procedure Port_Ok
+     (H     : Heap_Type;
+      V     : Value;
+      Input : Boolean;
+      Ok    : out Boolean)
+     with
+       Pre  => H.Ready,
+       Post => (if Ok then Is_Handle (V))
+   is
+      C : Cell;
+   begin
+      Ok := False;
+      if not Is_Handle (V) then
+         return;
+      end if;
+      Fetch (H, To_Handle (V), C, Ok);
+      if not Ok then
+         return;
+      end if;
+      if Input then
+         Ok := C.Kind = Cell_Input_Port;
+      else
+         Ok := C.Kind = Cell_Output_Port;
+      end if;
+   end Port_Ok;
+
+   --  Fetch V as a port of the requested direction.
+   procedure Port_Cell
+     (H     : Heap_Type;
+      V     : Value;
+      Input : Boolean;
+      C     : out Cell;
+      Ok    : out Boolean)
+     with Pre => H.Ready
+   is
+   begin
+      C  := (Kind => Cell_Free, others => <>);
+      Port_Ok (H, V, Input, Ok);
+      if not Ok then
+         return;
+      end if;
+      Fetch (H, To_Handle (V), C, Ok);
+   end Port_Cell;
+
+   --  Write one value into a string port.  The port's text is seeded into a
+   --  local output buffer, the writer runs there, and the result goes back
+   --  in one assignment -- so a buffer that fills up leaves the port exactly
+   --  as it was.  SPARK forbids handing a slice of the heap to a procedure
+   --  that also takes the heap, which is what the local buffer is for.
+   procedure Emit_To_Port
+     (H       : in out Heap_Type;
+      V       : Value;
+      Port    : Value;
+      Display : Boolean;
+      Status  : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      C     : Cell;
+      PB    : Output_Buffer;
+      W     : Boolean;
+      Good  : Boolean;
+   begin
+      Status := Error_Type;
+      Port_Cell (H, Port, False, C, Good);
+      if not Good then
+         return;
+      end if;
+      if C.Arity > Max_Text then
+         --  Unreachable: a port's length only ever moves within Max_Text.
+         return;
+      end if;
+      PB.Len := C.Arity;
+      for I in 1 .. C.Arity loop
+         pragma Loop_Invariant (I <= Max_Text);
+         PB.Data (I) := C.Name (I);
+      end loop;
+      Write_Value (H, V, PB, W, Display);
+      if not W then
+         Status := Error_Output_Full;
+         return;
+      end if;
+      if PB.Len > Max_Text then
+         Status := Error_Output_Full;
+         return;
+      end if;
+      declare
+         --  Started full: only the first PB.Len entries are read, but flow
+         --  cannot follow writes through a computed index.
+         T : Text_Buffer := (others => ' ');
+      begin
+         for I in 1 .. PB.Len loop
+            pragma Loop_Invariant (I <= Max_Text);
+            T (I) := PB.Data (I);
+         end loop;
+         Set_Port_Text (H, Port, T (1 .. PB.Len), Good);
+      end;
+      if not Good then
+         return;
+      end if;
+      Status := No_Error;
+   end Emit_To_Port;
+
    procedure Display_Prim
-     (H      : Heap_Type;
+     (H      : in out Heap_Type;
       Args   : Value;
       Display : Boolean;
       Result : out Value;
       B      : in out Output_Buffer;
       Status : out Error_Code)
-     with Pre => H.Ready
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
    is
       Arr  : Value_Array;
       Len  : Natural;
@@ -825,9 +957,16 @@ is
       if not Good then
          return;
       end if;
-      Check_Arity (Len, 1, 1, Good);
+      Check_Arity (Len, 1, 2, Good);
       if not Good then
          Status := Error_Wrong_Arity;
+         return;
+      end if;
+
+      if Len = 2 then
+         --  (display obj port): into the port, not the engine's buffer.
+         Emit_To_Port (H, Arr (1), Arr (2), Display, Status);
+         Result := Unspecified_Value;
          return;
       end if;
 
@@ -835,6 +974,271 @@ is
       Status := (if W then No_Error else Error_Output_Full);
    end Display_Prim;
 
+   --  The nine string-port procedures: ports are values over cells whose
+   --  text lives inline, so every one of them is a bounded walk over a
+   --  Max_Text buffer and none of them can touch the OS.
+
+   procedure Open_Input_String_Prim
+     (H      : in out Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      Hd   : Handle;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 1, 1, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      if not Is_Handle (Arr (1)) then
+         return;
+      end if;
+      declare
+         Kind  : Cell_Kind;
+         Valid : Boolean;
+      begin
+         Kind_Of (H, To_Handle (Arr (1)), Kind, Valid);
+         if not Valid or else Kind /= Cell_String then
+            return;
+         end if;
+      end;
+      New_Input_Port (H, Arr (1), Hd, Good);
+      if not Good then
+         Status := Error_Heap_Full;
+         return;
+      end if;
+      Result := From_Handle (Hd);
+      Status := No_Error;
+   end Open_Input_String_Prim;
+
+   procedure Open_Output_String_Prim
+     (H      : in out Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Len  : Natural;
+      Good : Boolean;
+      Hd   : Handle;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Length (H, Args, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 0, 0, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      New_Output_Port (H, Hd, Good);
+      if not Good then
+         Status := Error_Heap_Full;
+         return;
+      end if;
+      Result := From_Handle (Hd);
+      Status := No_Error;
+   end Open_Output_String_Prim;
+
+   procedure Get_Output_String_Prim
+     (H      : in out Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      C    : Cell;
+      Hd   : Handle;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 1, 1, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      Port_Cell (H, Arr (1), False, C, Good);
+      if not Good then
+         return;
+      end if;
+      New_String (H, C.Name (1 .. C.Name_Len), Hd, Good);
+      if not Good then
+         Status := Error_Heap_Full;
+         return;
+      end if;
+      Result := From_Handle (Hd);
+      Status := No_Error;
+   end Get_Output_String_Prim;
+
+   procedure Read_Char_Prim
+     (H       : in out Heap_Type;
+      Args    : Value;
+      Advance : Boolean;
+      Result  : out Value;
+      Status  : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      C    : Cell;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 1, 1, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      Port_Cell (H, Arr (1), True, C, Good);
+      if not Good then
+         return;
+      end if;
+      if C.Arity >= C.Name_Len then
+         Result := Eof_Value;
+         Status := No_Error;
+         return;
+      end if;
+      Result :=
+        From_Character
+          (Unsigned_32 (Character'Pos (C.Name (C.Arity + 1))));
+      Status := No_Error;
+      if Advance then
+         Set_Port_Pos (H, Arr (1), C.Arity + 1, Good);
+         if not Good then
+            Status := Error_Type;
+         end if;
+      end if;
+   end Read_Char_Prim;
+
+   procedure Char_Ready_Prim
+     (H      : Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with Pre => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 1, 1, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      Port_Ok (H, Arr (1), True, Good);
+      if not Good then
+         return;
+      end if;
+      Result := True_Value;
+      Status := No_Error;
+   end Char_Ready_Prim;
+
+   --  (read port): the next datum, or the EOF object.  The text is copied
+   --  to a local buffer first because Read_Datum takes the heap and a
+   --  source string, and SPARK forbids passing a slice of the heap along
+   --  with the heap itself.
+   procedure Read_Prim
+     (H      : in out Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      C    : Cell;
+      Src  : Text_Buffer;
+      Pos  : Natural;
+      Old  : Natural;
+      RS   : Tr7.Reader.Read_Status;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 1, 1, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      Port_Cell (H, Arr (1), True, C, Good);
+      if not Good then
+         return;
+      end if;
+      if C.Arity > C.Name_Len then
+         --  Unreachable: a position only ever moves within the text.
+         return;
+      end if;
+
+      Src := C.Name;
+      Pos := C.Arity;
+      Old := Pos;
+      Tr7.Reader.Read_Datum (H, Src (1 .. C.Name_Len), Pos, Result, RS);
+      case RS is
+         when Tr7.Reader.Read_Ok =>
+            if Pos = Old then
+               Status := Error_Parse;
+               return;
+            end if;
+            Set_Port_Pos (H, Arr (1), Pos, Good);
+            if not Good then
+               Status := Error_Type;
+               return;
+            end if;
+            Status := No_Error;
+         when Tr7.Reader.Read_End =>
+            Result := Eof_Value;
+            Status := No_Error;
+         when Tr7.Reader.Read_Error =>
+            Result := Void_Value;
+            Status := Error_Parse;
+      end case;
+   end Read_Prim;
 
    procedure String_Length_Prim
      (H      : Heap_Type;
@@ -2598,8 +3002,9 @@ is
       B      : in out Output_Buffer;
       Status : out Error_Code)
    is
-      Good : Boolean;
-      Len  : Natural;
+      Good  : Boolean;
+      Len   : Natural;
+      Port_V : Value;
    begin
       Result := Void_Value;
       --  A path that does not report success explicitly reports a type error,
@@ -2632,7 +3037,7 @@ is
             List_Prim (H, Args, Result, Status);
 
          when P_Null_P | P_Pair_P | P_Not | P_String_P | P_Vector_P
-           | P_Bytevector_P =>
+           | P_Bytevector_P | P_Port_P | P_Eof_Object_P =>
             Predicate (H, Args, P, Result, Status);
 
          when P_Eq_P =>
@@ -2649,9 +3054,23 @@ is
             if not Good then
                return;
             end if;
-            Check_Arity (Len, 0, 0, Good);
+            Check_Arity (Len, 0, 1, Good);
             if not Good then
                Status := Error_Wrong_Arity;
+               return;
+            end if;
+            if Len = 1 then
+               --  A newline is a character with display semantics, so the
+               --  port path is the display path.
+               Car_Of (H, Args, Port_V, Good);
+               if not Good then
+                  Status := Error_Malformed;
+                  return;
+               end if;
+               Emit_To_Port
+                 (H, From_Character (Unsigned_32 (Character'Pos (LF))),
+                  Port_V, True, Status);
+               Result := Unspecified_Value;
                return;
             end if;
             Put_Char (B, LF, Good);
@@ -2681,6 +3100,27 @@ is
 
          when P_Exact_To_Inexact =>
             Exact_To_Inexact_Prim (H, Args, Result, Status);
+
+         when P_Open_Input_String =>
+            Open_Input_String_Prim (H, Args, Result, Status);
+
+         when P_Open_Output_String =>
+            Open_Output_String_Prim (H, Args, Result, Status);
+
+         when P_Get_Output_String =>
+            Get_Output_String_Prim (H, Args, Result, Status);
+
+         when P_Read =>
+            Read_Prim (H, Args, Result, Status);
+
+         when P_Read_Char =>
+            Read_Char_Prim (H, Args, True, Result, Status);
+
+         when P_Peek_Char =>
+            Read_Char_Prim (H, Args, False, Result, Status);
+
+         when P_Char_Ready =>
+            Char_Ready_Prim (H, Args, Result, Status);
 
          when P_Sqrt =>
             Sqrt_Prim (H, Args, Result, Status);

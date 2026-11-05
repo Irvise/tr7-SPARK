@@ -123,6 +123,37 @@ necessarily treats them alike.  `(unquote)` with no argument is rejected as
 malformed, which is what R7RS says about an unquote that is not exactly one
 operand (`tests/qq.scm`, `tests/bad-qq.scm`).
 
+## Ports
+
+A port is a value over one of two cell kinds -- `Cell_Input_Port` and
+`Cell_Output_Port` -- whose text lives **inline in the port itself** (the
+same `Max_Text` buffer strings use), with `Arity` doubling as the read
+position or the written length.  Carrying the text inline means a port holds
+no handle, so the collector needs no extra root for one, and it caps every
+port at `Max_Text` bytes: a *string* port, which is what v1 specifies.
+
+The procedures are `open-input-string`, `open-output-string`,
+`get-output-string`, `read`, `read-char`, `peek-char`, `char-ready?`,
+`port?` and `eof-object?`; `display`, `write` and `newline` take the
+optional port argument R7RS gives them and otherwise write to the engine's
+buffer, which is what the REPL prints.  `read` returns the `#<eof>` object
+(the `Kind_EOF` datum) at the end of its text.
+
+Two shapes recur and are worth naming:
+
+- **the local-buffer bridge**: writing a value into a port runs the writer
+  against a local `Output_Buffer` seeded from the port and copies the result
+  back in one assignment, because SPARK forbids handing a slice of the heap
+  to a procedure that also takes the heap -- and because it makes a full
+  buffer atomic (the port is untouched).
+- **`read` copies its text to a local buffer** for the same aliasing reason,
+  reads one datum at the port's position, and writes the position back
+  through `Heap.Set_Port_Pos`.
+
+The OS boundary stays where the plan puts it: `tr7i` loads a file into a
+string and prints the engine's output buffer; the verified core never opens
+a file.
+
 ## Boundary
 
 `tr7` only sees strings and output buffers.  `tr7i` reads files and lines,

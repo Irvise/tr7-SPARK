@@ -57,7 +57,13 @@ writer prints the shortest string that reads back to the same value, `+`, `-`,
 `*` and the comparisons take mixed operands (inexact wins), `exact->inexact`
 converts, and `sqrt` returns the correctly rounded root (`tests/flonums.scm`).
 
-Not yet present: `/`, `call/cc`, ports beyond strings, the C ABI body, and
+String ports are in: `open-input-string`, `open-output-string`,
+`get-output-string`, `read`, `read-char`, `peek-char`, `char-ready?`,
+`port?`, `eof-object?`, and the optional port argument on `display`, `write`
+and `newline` (`tests/ports.scm`); the OS boundary stays in `tr7i`, which
+loads files into strings.
+
+Not yet present: `/`, `call/cc`, real file ports, the C ABI body, and
 `syntax-rules`.
 
 ## Build

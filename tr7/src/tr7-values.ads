@@ -20,7 +20,9 @@ is
       Kind_Character,
       Kind_Nil,
       Kind_Handle,
-      Kind_Unspecified);
+      Kind_Unspecified,
+      --  What `read` returns past the end of a port.
+      Kind_EOF);
 
    type Handle is record
       Index      : Cell_Index := 0;
@@ -45,6 +47,7 @@ is
    Void_Value        : constant Value := (Kind => Kind_Void, others => <>);
    Nil_Value         : constant Value := (Kind => Kind_Nil, others => <>);
    Unspecified_Value : constant Value := (Kind => Kind_Unspecified, others => <>);
+   Eof_Value         : constant Value := (Kind => Kind_EOF, others => <>);
    True_Value        : constant Value := (Kind => Kind_Boolean, B => True, others => <>);
    False_Value       : constant Value := (Kind => Kind_Boolean, B => False, others => <>);
 
@@ -56,6 +59,9 @@ is
 
    function Is_Boolean (V : Value) return Boolean is
      (V.Kind = Kind_Boolean);
+
+   function Is_EOF (V : Value) return Boolean is
+     (V.Kind = Kind_EOF);
 
    function Is_Fixnum (V : Value) return Boolean is
      (V.Kind = Kind_Fixnum);
@@ -127,6 +133,7 @@ is
                when Kind_Fixnum    => A.N = B.N,
                when Kind_Flonum    => A.F = B.F,
                when Kind_Character => A.C = B.C,
-               when Kind_Handle    => Same_Handle (A.H, B.H)));
+               when Kind_Handle    => Same_Handle (A.H, B.H),
+               when Kind_EOF        => True));
 
 end Tr7.Values;

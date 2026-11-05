@@ -54,7 +54,8 @@ Results, one entry per closed step of the plan:
 | `map` / `for-each` | 1,695 |
 | `quasiquote` converter | 1,826 |
 | `do` (completes step 2) | 1,953 |
-| flonums (step 5b: reader, writer, arithmetic, `sqrt`) | **2,386** |
+| flonums (step 5b: reader, writer, arithmetic, `sqrt`) | 2,386 |
+| string ports (closes step 4) | **2,546** |
 
 Every row is 0 unproved, 0 justified, 0 warnings, with flow, initialization
 and non-aliasing fully proved and a warning-free build.

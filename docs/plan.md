@@ -207,8 +207,11 @@ Concrete order, each step keeping the proof and the suites green.
    evaluator forms for the same reason -- they call a closure per element over
    a variadic list of lists (`tests/map.scm`): K_Operator/K_Argument evaluate
    the operands, K_Map carries one round, and `Map_Next` owns "finished, or
-   push and call" so the entry and the continuation cannot drift.  Still to
-   come in step 4: ports with the OS boundary in `tr7i`.
+   push and call" so the entry and the continuation cannot drift.  Step 4 is
+   complete: string ports are in (`tests/ports.scm`, `tests/bad-ports.scm`)
+   -- text inline in the port cell, a local-buffer bridge for writes, the
+   `Kind_EOF` datum for `read` at the end of text -- with the OS boundary
+   where the plan put it, in `tr7i`, which loads files into strings.
 5. **Numeric tower step 1** -- the integer half is in: `abs`, `min`, `max`,
    `quotient`, `remainder`, `modulo` and `expt` (`tests/numbers.scm`,
    `tests/numovf.scm`), each overflow or zero-divisor path guarded and named,

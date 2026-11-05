@@ -24,7 +24,14 @@ is
       Cell_Closure,
       Cell_Primitive,
       Cell_Environment,
-      Cell_Continuation);
+      Cell_Continuation,
+      --  String ports: the text lives in Name (so a port carries no handle
+      --  and the collector needs no extra root for it), Name_Len is its
+      --  length, and Arity is the read position (input) or the write length
+      --  (output).  Both are capped at Max_Text: a port is a string port,
+      --  and the OS boundary -- loading a file into one -- stays in tr7i.
+      Cell_Input_Port,
+      Cell_Output_Port);
 
    subtype Text_Buffer is String (1 .. Max_Text);
 

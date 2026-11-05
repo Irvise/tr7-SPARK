@@ -260,6 +260,103 @@ is
       end if;
    end New_Bytevector;
 
+   procedure New_Input_Port
+     (H      : in out Heap_Type;
+      Source : Value;
+      Result : out Handle;
+      Ok     : out Boolean)
+   is
+      C    : Cell;
+      Hd   : Handle;
+      Good : Boolean;
+   begin
+      Result := Null_Handle;
+      Ok     := False;
+      if not Is_Handle (Source) then
+         return;
+      end if;
+      Fetch (H, To_Handle (Source), C, Good);
+      if not Good or else C.Kind /= Cell_String then
+         return;
+      end if;
+      Allocate (H, Cell_Input_Port, Hd, Ok);
+      if not Ok then
+         return;
+      end if;
+      for I in 1 .. C.Name_Len loop
+         H.Cells (Hd.Index).Name (I) := C.Name (I);
+      end loop;
+      H.Cells (Hd.Index).Name_Len := C.Name_Len;
+      H.Cells (Hd.Index).Arity := 0;
+      Result := Hd;
+   end New_Input_Port;
+
+   procedure New_Output_Port
+     (H      : in out Heap_Type;
+      Result : out Handle;
+      Ok     : out Boolean)
+   is
+      Hd : Handle;
+   begin
+      Result := Null_Handle;
+      Allocate (H, Cell_Output_Port, Hd, Ok);
+      if not Ok then
+         return;
+      end if;
+      H.Cells (Hd.Index).Name_Len := 0;
+      H.Cells (Hd.Index).Arity := 0;
+      Result := Hd;
+   end New_Output_Port;
+
+   procedure Set_Port_Pos
+     (H   : in out Heap_Type;
+      V   : Value;
+      Pos : Natural;
+      Ok  : out Boolean)
+   is
+      C    : Cell;
+      Good : Boolean;
+   begin
+      Ok := False;
+      if not Is_Handle (V) then
+         return;
+      end if;
+      Fetch (H, To_Handle (V), C, Good);
+      if not Good or else C.Kind /= Cell_Input_Port then
+         return;
+      end if;
+      H.Cells (Valid_Cell_Index (To_Handle (V).Index)).Arity := Pos;
+      Ok := True;
+   end Set_Port_Pos;
+
+   procedure Set_Port_Text
+     (H    : in out Heap_Type;
+      V    : Value;
+      Text : String;
+      Ok   : out Boolean)
+   is
+      C    : Cell;
+      Good : Boolean;
+      Idx  : Valid_Cell_Index;
+   begin
+      Ok := False;
+      if not Is_Handle (V) then
+         return;
+      end if;
+      Fetch (H, To_Handle (V), C, Good);
+      if not Good or else C.Kind /= Cell_Output_Port then
+         return;
+      end if;
+      Idx := Valid_Cell_Index (To_Handle (V).Index);
+      for I in 1 .. Text'Length loop
+         pragma Loop_Invariant (I <= Max_Text);
+         H.Cells (Idx).Name (I) := Text (Text'First + (I - 1));
+      end loop;
+      H.Cells (Idx).Name_Len := Text'Length;
+      H.Cells (Idx).Arity := Text'Length;
+      Ok := True;
+   end Set_Port_Text;
+
    procedure New_Closure
      (H      : in out Heap_Type;
       Params : Value;

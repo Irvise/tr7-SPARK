@@ -536,6 +536,9 @@ is
          when Kind_Unspecified =>
             Put (B, "#<unspecified>", Ok);
 
+         when Kind_EOF =>
+            Put (B, "#<eof>", Ok);
+
          when Kind_Nil =>
             Put (B, "()", Ok);
 
@@ -674,6 +677,12 @@ is
                         end if;
                      end loop;
                      Put (B, ')', Ok);
+
+                  when Cell_Input_Port =>
+                     Put (B, "#<input-port>", Ok);
+
+                  when Cell_Output_Port =>
+                     Put (B, "#<output-port>", Ok);
 
                   when Cell_Closure =>
                      Put (B, "#<procedure>", Ok);

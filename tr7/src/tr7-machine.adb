@@ -2351,6 +2351,7 @@ is
    begin
       if Is_Fixnum (M.Ctl)
         or else Is_Flonum (M.Ctl)
+        or else Is_EOF (M.Ctl)
         or else Is_Boolean (M.Ctl)
         or else Is_Character (M.Ctl)
         or else Is_Void (M.Ctl)
@@ -2381,7 +2382,8 @@ is
             Eval_Pair (H, M);
 
          when Cell_String | Cell_Vector | Cell_Bytevector | Cell_Closure
-            | Cell_Primitive | Cell_Environment | Cell_Continuation =>
+            | Cell_Primitive | Cell_Environment | Cell_Continuation
+            | Cell_Input_Port | Cell_Output_Port =>
             M.Result := M.Ctl;
             M.Mode := Mode_Return;
 
