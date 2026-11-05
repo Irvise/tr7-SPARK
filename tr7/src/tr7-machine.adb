@@ -2914,12 +2914,19 @@ is
       Env : Handle;
       M   : Machine)
    is
+      Msg : Value;
    begin
       --  The CEK state is a complete root set between steps: control, the
       --  value being delivered, the current environment and every frame on
       --  the continuation stack.
       Mark_Root (H, M.Ctl);
       Mark_Root (H, M.Result);
+      --  A pending user error's text.  It is only set on the step that halts,
+      --  so nothing can collect it in between -- this is defence in depth --
+      --  and it is copied to a local first because a component of H cannot
+      --  travel with H.
+      Msg := H.Error_Msg;
+      Mark_Root (H, Msg);
       Mark_Root (H, From_Handle (Env));
       Mark_Root (H, From_Handle (M.Env));
 
@@ -2958,6 +2965,7 @@ is
       M.Top := 0;
       M.Result := Nil_Value;
       M.Error := No_Error;
+      H.Error_Msg := Nil_Value;
 
       --  The step counter is driver state, not machine state: no callee can
       --  touch it, so the loop invariant needs no frame reasoning about the

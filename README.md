@@ -67,6 +67,9 @@ loads files into strings.
 double otherwise (`(/ 6 3)` is `2`, `(/ 1 2)` is `0.5`) -- v1 has no
 rationals (`tests/div.scm`).
 
+`(error message irritant ...)` raises with a text the printer prefers over
+the generic code name (`tests/error.scm`).
+
 Not yet present: `call/cc`, real file ports, the C ABI body, and
 `syntax-rules`.
 

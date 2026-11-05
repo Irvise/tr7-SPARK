@@ -53,7 +53,15 @@ procedure Tr7i with SPARK_Mode => Off is
             Emit_Line (Output_Text (E));
             Reset_Output (E);
          end if;
-         Put_Line ("error: " & Error_Name (Status));
+         declare
+            Msg : constant String := Error_Message (E);
+         begin
+            if Msg'Length > 0 then
+               Put_Line ("error: " & Msg);
+            else
+               Put_Line ("error: " & Error_Name (Status));
+            end if;
+         end;
       end if;
    end Show_Result;
 

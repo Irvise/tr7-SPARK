@@ -1,4 +1,5 @@
 with Tr7.Config; use Tr7.Config;
+with Tr7.Cells; use Tr7.Cells;
 with Tr7.Env;
 with Tr7.Ids; use Tr7.Ids;
 with Tr7.Primitives; use Tr7.Primitives;
@@ -125,5 +126,20 @@ is
 
    function Output_Text (E : Engine) return String is
       (String (E.Output.Data (1 .. E.Output.Len)));
+
+   function Error_Message (E : Engine) return String
+   is
+      C    : Cell;
+      Good : Boolean;
+   begin
+      if not Is_Handle (E.H.Error_Msg) then
+         return "";
+      end if;
+      Fetch (E.H, To_Handle (E.H.Error_Msg), C, Good);
+      if not Good or else C.Kind /= Cell_String then
+         return "";
+      end if;
+      return String (C.Name (1 .. C.Name_Len));
+   end Error_Message;
 
 end Tr7.Engine;

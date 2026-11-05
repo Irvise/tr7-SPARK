@@ -59,4 +59,9 @@ is
    function Output_Text (E : Engine) return String
      with Pre => E.H.Ready;
 
+   --  The text of a raised (error ...), or the empty string when the
+   --  failure carried none and only its Error_Code name applies.
+   function Error_Message (E : Engine) return String
+     with Pre => E.H.Ready;
+
 end Tr7.Engine;

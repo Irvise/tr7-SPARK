@@ -85,6 +85,7 @@ is
          when P_Port_P             => return "port?";
          when P_Eof_Object_P       => return "eof-object?";
          when P_Div                => return "/";
+         when P_Error              => return "error";
       end case;
    end Name_Of;
 
@@ -2531,6 +2532,83 @@ is
    --  grow), or both operands inside a fixed window whose ratio is below
    --  the range; anything else reports an overflow rather than an
    --  infinity.
+   --  (error message irritant ...): R7RS's raiser.  The text is assembled
+   --  here -- the message, then each irritant displayed with a space -- and
+   --  parked in the heap record, because a primitive sees the heap and not
+   --  the machine; the returned Status is what stops the evaluator, and the
+   --  printer prefers this text over the generic name.
+   procedure Error_Prim
+     (H      : in out Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      C    : Cell;
+      Buf  : Output_Buffer;
+      W    : Boolean;
+      Hd   : Handle;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      if Len < 1 then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      String_Cell (H, Arr (1), C, Good);
+      if not Good then
+         return;
+      end if;
+
+      Buf.Len := C.Name_Len;
+      for I in 1 .. C.Name_Len loop
+         Buf.Data (I) := C.Name (I);
+      end loop;
+      for I in 2 .. Len loop
+         pragma Loop_Invariant (Len <= Arr'Length);
+         Put_Char (Buf, ' ', W);
+         if not W then
+            Status := Error_Output_Full;
+            return;
+         end if;
+         Write_Value (H, Arr (I), Buf, W, True);
+         if not W then
+            Status := Error_Output_Full;
+            return;
+         end if;
+      end loop;
+
+      --  Whatever fits: a message longer than a string cell keeps its first
+      --  Max_Text bytes rather than losing the error itself.  (The copy
+      --  through a local Text_Buffer is the Output_Array/String bridge
+      --  again: New_String takes a String, Buf.Data is not one.)
+      declare
+         T : Text_Buffer := (others => ' ');
+         N : Natural := Buf.Len;
+      begin
+         if N > Max_Text then
+            N := Max_Text;
+         end if;
+         for I in 1 .. N loop
+            T (I) := Buf.Data (I);
+         end loop;
+         New_String (H, T (1 .. N), Hd, Good);
+      end;
+      if Good then
+         H.Error_Msg := From_Handle (Hd);
+      end if;
+      Status := Error_User;
+   end Error_Prim;
+
    procedure Div_Prim
      (H      : Heap_Type;
       Args   : Value;
@@ -3180,6 +3258,9 @@ is
 
          when P_Div =>
             Div_Prim (H, Args, Result, Status);
+
+         when P_Error =>
+            Error_Prim (H, Args, Result, Status);
 
          when P_Num_Equal | P_Less | P_Greater | P_Less_Equal | P_Greater_Equal =>
             Compare_Chain (H, Args, P, Result, Status);

@@ -258,6 +258,15 @@ Scheme error at the application point, and `tr7i` prints
 Every path through `Call` that does not report success reports a type error, so
 a missing assignment can only produce an error, never silence.
 
+`(error message irritant ...)` is Scheme's own raiser and the one code with a
+text: the primitive assembles the message with its irritants displayed after
+it, parks the string in `Heap.Error_Msg` -- a primitive sees the heap, not the
+machine, which is why the slot lives there -- and returns `Error_User`.  The
+slot is cleared at the start of every evaluation, marked defensively by the
+collector (copied to a local first: a component of H cannot travel with H),
+and `tr7i` prefers it over the generic code name, so a program prints
+`error: boom 1 2` while everything it printed beforehand still appears.
+
 ## Garbage collection
 
 The arena is collected by a mark-sweep collector that only ever runs at a

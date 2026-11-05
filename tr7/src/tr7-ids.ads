@@ -69,6 +69,7 @@ is
       P_Char_Ready,
       P_Port_P,
       P_Eof_Object_P,
-      P_Div);
+      P_Div,
+      P_Error);
 
 end Tr7.Ids;

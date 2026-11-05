@@ -26,6 +26,13 @@ is
       Free_Head   : Cell_Index := 0;
       Free_Count  : Natural range 0 .. Max_Cells := 0;
       Ready       : Boolean := False;
+      --  The text of the last (error ...) raised, when it has one: a string
+      --  value the printer prefers over the generic Error_Name.  It lives
+      --  here because a primitive sees the heap and not the machine; it is
+      --  cleared at the start of every evaluation and only ever set on the
+      --  step that halts, so nothing can collect it in between -- the mark
+      --  below is defence in depth.
+      Error_Msg   : Value := Nil_Value;
       Mark_Stack  : Mark_Array := (others => Valid_Cell_Index'First);
       Mark_Top    : Natural range 0 .. Max_Cells := 0;
       Mark_Failed : Boolean := False;

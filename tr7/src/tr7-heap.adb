@@ -10,6 +10,7 @@ is
       H.Mark_Stack := (others => Valid_Cell_Index'First);
       H.Epoch := 1;
       H.Collect_Stopped := False;
+      H.Error_Msg := Nil_Value;
       H.Mark_Top := 0;
       H.Mark_Failed := False;
       H.Stress_GC := False;

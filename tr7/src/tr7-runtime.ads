@@ -20,7 +20,9 @@ is
       Error_Overflow,
       Error_Output_Full,
       Error_Index,
-      Error_Range);
+      Error_Range,
+      --  Scheme's own (error ...), whose text lives in Heap.Error_Msg.
+      Error_User);
 
    Max_Output : constant := 4_096;
 
