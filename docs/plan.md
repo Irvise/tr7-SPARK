@@ -132,7 +132,7 @@ not declared as a crate dependency, so `alr build` requires only GNAT and GPR.
 | M0 | 1-2 days | Three crates, toolchain, pins, build/prove scripts, walking skeleton (`(+ 1 2)`) |
 | M1 | 1-2 weeks | Values, arena, symbols, numbers, pairs, strings, vectors, bytevectors; GC skeleton |
 | M2 | 2-3 weeks | Reader/writer, full CEK machine, core special forms, tail calls |
-| M3 | 2 weeks | Core primitives, errors, restricted `call/cc`, `dynamic-wind`, `values` -- `error`, `values`/`call-with-values` and restricted `call/cc` are in (`tests/error.scm`, `tests/values.scm`, `tests/callcc.scm`); `dynamic-wind` follows, since its meaning is the continuation re-entry |
+| M3 | 2 weeks | Core primitives, errors, restricted `call/cc`, `dynamic-wind`, `values` -- **complete**: `error`, `values`/`call-with-values`, restricted `call/cc` and `dynamic-wind` are in (`tests/error.scm`, `tests/values.scm`, `tests/callcc.scm`, `tests/wind.scm`) |
 | M4 | 2 weeks | String ports, REPL, C ABI subset + generated stubs, core test suite |
 | M5 | 2-3 weeks | Mark-sweep GC proof, Gold hardening, contracts, benchmarks, report |
 

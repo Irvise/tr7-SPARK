@@ -79,8 +79,11 @@ valid within its dynamic extent -- the cell's own handle is its identity,
 the stack scan finds its frame, and invoking outside the extent reports
 `continuation expired`.
 
-Not yet present: `call/cc`, real file ports, the C ABI body, and
-`syntax-rules`.
+`dynamic-wind` is in (`tests/wind.scm`): `before`, `thunk` and `after`
+are called around the extent, the form returns the thunk's value, and an
+escape runs the crossed `after`s innermost first.
+
+Not yet present: real file ports, the C ABI body, and `syntax-rules`.
 
 ## Build
 

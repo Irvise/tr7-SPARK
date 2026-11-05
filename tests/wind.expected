@@ -1,0 +1,9 @@
+(in thunk out)
+3
+escaped
+(in thunk out in2 out2)
+deep
+(in thunk out in2 out2 a b B A)
+(e1 e2 e3 c1 c2 c3)
+42
+(e1 e2 e3 c1 c2 c3 ev)

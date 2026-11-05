@@ -65,6 +65,28 @@ continuation past its extent.  The procedure runs through a trampoline
 frame (`K_CallCC_Recv`) that both its normal return and an escape land on,
 which is why the handler after the call needs no phase of its own.
 
+`dynamic-wind before thunk after` is a procedure whose three expressions are
+evaluated once, left to right -- R7RS leaves operand order unspecified
+(4.1.3), so this is a choice, not a requirement -- then `before` is called,
+then `thunk` under a wind frame, then `after` whenever control leaves the
+extent, and the form returns the *thunk's* value ("returning the result(s)
+of this call").  Six frame kinds carry the six phases (three expression
+evaluations, three procedure calls), and the wind frame (`K_Wind`) is what
+an escape's scan looks for: it holds the after *procedure*, already
+evaluated when the form ran.  On an escape the crossed wind frames are
+scanned outwards and their afters consed, so the list runs innermost first
+as R7RS requires (the inner call's after before the outer's); the stack is
+then truncated to the captured frame and the unwind frame (`K_Unwind`) is
+pushed directly on top of it -- so arriving (list exhausted, value in
+`Func`) needs no index arithmetic: popping the unwind frame lands exactly
+on the target.  Because `call/cc` here is the restricted escape form, a
+completed extent's capture frame is gone, so a wind is never *re-entered*
+and `before` never re-runs; and because R7RS leaves the effect of entering
+or exiting a `before` or `after` extent through a captured continuation
+unspecified, an escape firing from inside an `after` during an unwind may
+abandon the afters still queued -- which is what v1 does, recorded rather
+than papered over (`tests/wind.scm`).
+
 `call-with-values` runs in three phases with a frame kind each: evaluate
 the consumer and hold it (`K_Values`), evaluate the producer
 (`K_Values_App`), call the producer with no arguments (`K_Values_Recv`),

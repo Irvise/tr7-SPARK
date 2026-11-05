@@ -66,7 +66,34 @@ is
       --  call/cc: the trampoline the procedure was called through -- both
       --  its normal return and an escape land here, and its Sym is the
       --  continuation's identity.
-      K_CallCC_Recv);
+      K_CallCC_Recv,
+      --  dynamic-wind: the `before` expression is being evaluated; its
+      --  value (the before procedure) arrives next and rides in Func while
+      --  the thunk expression is evaluated.  Expr holds the thunk
+      --  expression, Alt the after expression.
+      K_DW_Before,
+      --  dynamic-wind: the thunk expression is being evaluated; on return
+      --  the after expression moves to Expr for its turn, the thunk
+      --  procedure rides in Alt, and before's still waits in Func.
+      K_DW_Thunk,
+      --  dynamic-wind: the after expression is being evaluated; on return
+      --  all three procedures are in hand and `before` is called.
+      K_DW_After,
+      --  dynamic-wind: `before` has been called; on return `thunk` is
+      --  called, with Expr still holding the after procedure for later.
+      K_DW_Call,
+      --  dynamic-wind: the thunk is running with this frame on the stack,
+      --  which is exactly what an escape's scan looks for; Expr holds the
+      --  after procedure to call when the thunk returns.
+      K_Wind,
+      --  dynamic-wind: the after procedure has been called; Func holds the
+      --  thunk's value, which is the form's value.
+      K_Wind_After,
+      --  escape: the after procedures crossed by the unwind, innermost
+      --  first, in Args; Func is the value to deliver.  The frame sits
+      --  directly on the captured frame, so when the list runs out,
+      --  popping it lands exactly on the target.
+      K_Unwind);
 
    type Frame is record
       Kind : Frame_Kind := K_If;

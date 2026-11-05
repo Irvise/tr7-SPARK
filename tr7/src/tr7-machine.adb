@@ -189,10 +189,13 @@ is
       New_Env : Handle;
       Prim_Status : Error_Code;
       Lambda_Body : Value;
-      First : Value;
-      Rest  : Value;
-      F     : Frame;
-      Found : Boolean;
+      First   : Value;
+      Rest    : Value;
+      F       : Frame;
+      Target   : Natural;
+      Wind     : Value;
+      New_Wind : Value;
+      After_V  : Value;
    begin
       if not Is_Handle (Func) then
          Fail (M, Error_Not_A_Procedure);
@@ -222,23 +225,70 @@ is
                Fail (M, Error_Wrong_Arity);
                return;
             end if;
-            Found := False;
+            Target := 0;
             for I in 1 .. M.Top loop
                pragma Loop_Invariant (I <= M.Top);
                if M.Stack (I).Kind = K_CallCC_Recv
                  and then Same_Value (M.Stack (I).Sym, Func)
                then
-                  M.Top := I;
-                  Found := True;
+                  Target := I;
                   exit;
                end if;
             end loop;
-            if not Found then
+            if Target = 0 then
                Fail (M, Error_Continuation);
                return;
             end if;
-            M.Result := First;
-            M.Mode := Mode_Return;
+
+            --  Every wind the escape crosses has an after to run.  What
+            --  rides is the after *procedure*, already evaluated when the
+            --  form ran -- the wind frame holds it in Expr.  Cons prepends,
+            --  so the frames are scanned outwards-to-inwards and the list
+            --  comes out innermost first, which is the order R7RS requires
+            --  (the inner call's after runs before the outer's).  The list
+            --  is a local only until it is installed in the unwind frame
+            --  below, and the collector runs solely at the safe point
+            --  between steps, so nothing can collect it in between.
+            Wind := Nil_Value;
+            for J in Target + 1 .. M.Top loop
+               pragma Loop_Invariant (Target < J and then J <= M.Top);
+               pragma Loop_Invariant (H.Ready);
+               if M.Stack (J).Kind = K_Wind then
+                  Cons (H, M.Stack (J).Expr, Wind, New_Wind, Good);
+                  if not Good then
+                     Fail (M, Error_Heap_Full);
+                     return;
+                  end if;
+                  Wind := New_Wind;
+               end if;
+            end loop;
+            M.Top := Target;
+
+            if Is_Nil (Wind) then
+               M.Result := First;
+               M.Mode := Mode_Return;
+               return;
+            end if;
+
+            --  The unwind frame sits directly on the captured frame: when
+            --  its list runs out, popping it lands exactly on the target,
+            --  where the delivered value is received -- no index arithmetic
+            --  anywhere.
+            F := (Kind => K_Unwind,
+                  Func => First,
+                  Args => Wind,
+                  others => <>);
+            Push (M, F, Good);
+            if not Good then
+               Fail (M, Error_Step_Limit);
+               return;
+            end if;
+            Car_Of (H, Wind, After_V, Good);
+            if not Good then
+               Fail (M, Error_Malformed);
+               return;
+            end if;
+            Apply_Procedure (H, After_V, Nil_Value, M, B);
 
          when Cell_Primitive =>
             Call (H, C.Prim, Args, Res, B, Prim_Status);
@@ -2196,6 +2246,65 @@ is
       elsif Is_Symbol_Named (H, Head, "do") then
          Start_Do (H, M);
          return;
+      elsif Is_Symbol_Named (H, Head, "dynamic-wind") then
+         --  (dynamic-wind before thunk after): the three expressions are
+         --  evaluated once, left to right -- they are arguments, and the
+         --  reference implementation does exactly this -- then `before` is
+         --  called, then `thunk` under the wind frame, then `after` when
+         --  control leaves, normally or through an escape.  The frame
+         --  pushed here carries the thunk expression in Expr and the after
+         --  expression in Alt; each later phase adds the procedure the
+         --  previous one produced.
+         Cdr_Of (H, M.Ctl, Rest, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Car_Of (H, Rest, Tmp, Good);          --  before expression
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Cdr_Of (H, Rest, Tail2, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Car_Of (H, Tail2, Test, Good);        --  thunk expression
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Cdr_Of (H, Tail2, Tail, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Car_Of (H, Tail, Expr_V, Good);       --  after expression
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Cdr_Of (H, Tail, Tmpl, Good);
+         if not Good or else not Is_Nil (Tmpl) then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+
+         F := (Kind => K_DW_Before,
+               Expr => Test,
+               Alt  => Expr_V,
+               Env  => M.Env,
+               others => <>);
+         Push (M, F, Good);
+         if not Good then
+            Fail (M, Error_Step_Limit);
+            return;
+         end if;
+         M.Ctl := Tmp;
+         M.Mode := Mode_Eval;
+         return;
+
       elsif Is_Symbol_Named (H, Head, "call/cc") then
          --  (call/cc proc): evaluate the procedure, hand it an escape
          --  continuation, and receive either the procedure's value or the
@@ -2736,6 +2845,113 @@ is
             end if;
             F.Func := New_Args;
             Do_Advance (H, M, F);
+
+         when K_DW_Before =>
+            --  The `before` expression has been evaluated; its value (the
+            --  before procedure) rides in Func while the thunk expression
+            --  is evaluated next.
+            F.Kind := K_DW_Thunk;
+            F.Func := M.Result;
+            Push (M, F, Good);
+            if not Good then
+               Fail (M, Error_Step_Limit);
+               return;
+            end if;
+            M.Ctl := F.Expr;
+            M.Env := F.Env;
+            M.Mode := Mode_Eval;
+
+         when K_DW_Thunk =>
+            --  The thunk expression has been evaluated: the after
+            --  expression moves into Expr for its turn and the thunk
+            --  procedure rides in Alt.
+            First := M.Result;
+            F.Expr := F.Alt;
+            F.Alt := First;
+            F.Kind := K_DW_After;
+            Push (M, F, Good);
+            if not Good then
+               Fail (M, Error_Step_Limit);
+               return;
+            end if;
+            M.Ctl := F.Expr;
+            M.Env := F.Env;
+            M.Mode := Mode_Eval;
+
+         when K_DW_After =>
+            --  All three procedures are in hand (the after expression's
+            --  value just arrived): call `before` first, as the reference
+            --  implementation does, and hold the other two for their turns.
+            First := F.Func;
+            F.Expr := M.Result;
+            F.Func := F.Alt;
+            F.Kind := K_DW_Call;
+            Push (M, F, Good);
+            if not Good then
+               Fail (M, Error_Step_Limit);
+               return;
+            end if;
+            Apply_Procedure (H, First, Nil_Value, M, B);
+
+         when K_DW_Call =>
+            --  `before` has returned (its value is unspecified): call the
+            --  thunk -- the wind frame goes on the stack first, so the
+            --  thunk runs *under* it, which is what makes the wind visible
+            --  to an escape.
+            First := F.Func;
+            F.Kind := K_Wind;
+            Push (M, F, Good);
+            if not Good then
+               Fail (M, Error_Step_Limit);
+               return;
+            end if;
+            Apply_Procedure (H, First, Nil_Value, M, B);
+
+         when K_Wind =>
+            --  The thunk has run: its value becomes the form's and rides
+            --  in Func while the after procedure (Expr) is called.
+            First := F.Expr;
+            F.Func := M.Result;
+            F.Kind := K_Wind_After;
+            Push (M, F, Good);
+            if not Good then
+               Fail (M, Error_Step_Limit);
+               return;
+            end if;
+            Apply_Procedure (H, First, Nil_Value, M, B);
+
+         when K_Wind_After =>
+            --  `after` has returned (its value is discarded): the thunk's
+            --  value is this form's.
+            M.Result := F.Func;
+            M.Mode := Mode_Return;
+
+         when K_Unwind =>
+            --  One after procedure has run while unwinding: call the next,
+            --  or -- with the list exhausted -- deliver the value to the
+            --  captured frame this one sits directly above.
+            Cdr_Of (H, F.Args, Rest, Good);
+            if not Good then
+               Fail (M, Error_Malformed);
+               return;
+            end if;
+            if Is_Nil (Rest) then
+               M.Result := F.Func;
+               M.Mode := Mode_Return;
+               return;
+            end if;
+            F.Args := Rest;
+            Push (M, F, Good);
+            if not Good then
+               Fail (M, Error_Step_Limit);
+               return;
+            end if;
+            Car_Of (H, Rest, First, Good);
+            if not Good then
+               Fail (M, Error_Malformed);
+               return;
+            end if;
+            Apply_Procedure (H, First, Nil_Value, M, B);
 
          when K_CallCC =>
             --  The procedure has been evaluated: build the continuation,
