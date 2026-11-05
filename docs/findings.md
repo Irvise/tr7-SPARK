@@ -42,6 +42,98 @@
 - The verified `tr7` library is OS-free. The REPL/CLI (`tr7i`) and C ABI
   (`tr7_c`) are the documented trusted boundary.
 
+## Lessons learned (retrospective, after M1's fourteen batches)
+
+The batch rhythm -- build, every suite, `scripts/prove.sh`, docs, commit --
+held for all fourteen batches and nothing was ever reverted, so start there.
+What follows is what to keep, what cost time, and the rules that fall out.
+
+**Keep doing:**
+
+- **Cross-check expectations against an independent oracle, never against
+  the implementation.**  Every `.expected` line for floats was verified with
+  Python's `repr`/`math.sqrt` before committing; every mismatch was resolved
+  by deciding which side was *right* (usually mine).  The `sqrt` algebra
+  bugs -- `E` instead of `E - 53`, `K - 36` instead of `K - 26` -- each
+  showed up as a value off by an exact power of two in that table within one
+  test run.
+- **Reproduce in a sandbox before restructuring real code.**  The
+  float-in-loop rule (add/multiply in a loop time out, division and
+  straight-line prove) was isolated in a five-procedure project under
+  `/tmp/opencode` in minutes, after hours of suspicion.  One small project
+  that can be rebuilt in seconds beats iterating on a 2,600-check gate.
+- **Read the whole failure message before choosing a strategy.**
+  "reached time limit" (budget), "cannot prove X" (structure or missing
+  fact), "not yet supported" (spelling) and "might fail" (refuted) demand
+  four different responses; `grep -A6` on the log is the highest-value
+  command in this workflow.
+- **Settle budget questions with one capped, decisive experiment.**  The
+  60-second gate run took 19 hours and left the same 13 checks failing --
+  which proved, definitively, that those were capability gaps and not
+  budget.  Correct conclusion, wasteful method: a single unit at a raised
+  timeout (`gnatprove -u`) would have shown the same in minutes.  Never let
+  an experiment multiply the cost of the whole gate.
+- **Never weaken the gate.**  Level 4, `--checks-as-errors`, the 5 s
+  timeout, zero `Assume`/`Annotate`/`Suppress` in `tr7/src` -- across every
+  batch, when something would not prove, the *code* changed.  The gate's
+  credibility is the product's.
+
+**Mistakes, and the rule each suggests:**
+
+- **Validate the hardest proof obligation before committing to an
+  algorithm.**  The Newton loop was fully designed and written before
+  discovering that `X / G`'s bound is undischargeable here -- and replacing
+  it cost a rewrite of `Sqrt_Of`.  The float-branch designs for `+`/`-`/`*`
+  were probed in the sandbox *first* and survived intact.  Probe first,
+  build second.
+- **Read your own findings before coding.**  `Digits` was used as an
+  identifier after the reserved-word list (`Body`, `Reverse`, `Entry`,
+  `Digits`) was already written down; a formal parameter constraint and
+  `F'Result` in a postcondition were both re-made after the idiom notes
+  recorded them.  The notes only help if they are read at the start of the
+  batch, not after the error.
+- **Bulk text substitution needs an immediate build.**  An anchored replace
+  left a stray duplicate `procedure Display_Prim` that only a compile
+  surfaced; every Python edit was followed by a build within the same tool
+  call, which turned each such mistake into a one-cycle fix.
+- **Know the local convention before writing a call.**  `(newline o)` took
+  the `cdr` of the argument list when `Args` *is* the list; the port test
+  consumed characters from the same port it then read datums from.  Both
+  were test/design errors, not code errors -- check how the neighbours
+  (here, `Length (H, Args, ...)`) access their arguments first.
+- **Design for SPARK aliasing at design time.**  The two places a heap slice
+  had to travel with the heap (`read`'s source, the port write bridge) were
+  both found at compile time; they should have been found when the data flow
+  was first drawn.
+- **Test suites encode semantics, not intentions.**  `'(1)` is the list
+  `(1)`; `#(...)` evaluates its elements; a file halts at its first error,
+  so exactly one error per suite; `(/ 1)` is exactly `1`; `20.0` prints as
+  `2.0e+01` because that is precision-1 `%g`.  Three of these were
+  "failures" that were actually correct behaviour.
+
+**Patterns worth reusing:**
+
+- *Epochs over clearing passes* -- the collector's mark became a scalar
+  postcondition instead of an O(n^2) invariant, which is also what fixed the
+  `-gnata` run-time regression.
+- *A right fold over a reversed list* -- quasiquote's spine walk collects
+  elements iteratively and folds left over the reversal, which is a right
+  fold over the original; a splice then appends exactly "the code built for
+  what follows".
+- *Dead guards as proof bridges* -- a clamp the runtime never reaches turns
+  a chain-derived bound into a path fact, and path facts are what the
+  provers finish instantly where loop-carried facts time out.
+- *Exact integers for float decisions* -- squares and midpoints compared on
+  `Integer_128`, where a floating-point product would tie.
+- *Split helpers by what callers read*; take a frame `in` and push a local
+  copy when a callee writes what the caller never reads again.
+- *The local-buffer bridge* for any procedure that needs a heap slice and
+  the heap.
+- *Frame kind as phase* (`K_Do`/`K_Do_Body`/`K_Do_Step`) instead of a state
+  tag in a field.
+- *Commit messages as the audit trail* -- gate numbers, what changed, and
+  why, so `git log` answers "how did this get here" without archaeology.
+
 ## What the provers actually discharge (measured, 5 s per check)
 
 All numbers below come from isolated SPARK units run with GNATprove 16.1,
