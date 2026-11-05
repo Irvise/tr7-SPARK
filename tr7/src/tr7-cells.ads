@@ -31,7 +31,10 @@ is
       --  (output).  Both are capped at Max_Text: a port is a string port,
       --  and the OS boundary -- loading a file into one -- stays in tr7i.
       Cell_Input_Port,
-      Cell_Output_Port);
+      Cell_Output_Port,
+      --  Several values in flight: Car holds the list of them (kind-agnostic
+      --  marking covers it), and only `values` builds one.
+      Cell_Values);
 
    subtype Text_Buffer is String (1 .. Max_Text);
 

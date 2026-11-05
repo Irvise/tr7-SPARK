@@ -86,6 +86,7 @@ is
          when P_Eof_Object_P       => return "eof-object?";
          when P_Div                => return "/";
          when P_Error              => return "error";
+         when P_Values             => return "values";
       end case;
    end Name_Of;
 
@@ -2537,6 +2538,44 @@ is
    --  parked in the heap record, because a primitive sees the heap and not
    --  the machine; the returned Status is what stops the evaluator, and the
    --  printer prefers this text over the generic name.
+   --  (values v ...) with R7RS's shape: nothing is a zero-value wrapper,
+   --  one value is that value itself (so it binds and passes like any
+   --  other), and several become a wrapper cell the evaluator spreads --
+   --  the argument list it already built is adopted as the contents.
+   procedure Values_Prim
+     (H      : in out Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      Hd   : Handle;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      if Len = 1 then
+         Result := Arr (1);
+         Status := No_Error;
+         return;
+      end if;
+      New_Values (H, Args, Hd, Good);
+      if not Good then
+         Status := Error_Heap_Full;
+         return;
+      end if;
+      Result := From_Handle (Hd);
+      Status := No_Error;
+   end Values_Prim;
+
    procedure Error_Prim
      (H      : in out Heap_Type;
       Args   : Value;
@@ -3261,6 +3300,9 @@ is
 
          when P_Error =>
             Error_Prim (H, Args, Result, Status);
+
+         when P_Values =>
+            Values_Prim (H, Args, Result, Status);
 
          when P_Num_Equal | P_Less | P_Greater | P_Less_Equal | P_Greater_Equal =>
             Compare_Chain (H, Args, P, Result, Status);

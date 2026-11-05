@@ -70,6 +70,10 @@ rationals (`tests/div.scm`).
 `(error message irritant ...)` raises with a text the printer prefers over
 the generic code name (`tests/error.scm`).
 
+`values` and `call-with-values` are in (`tests/values.scm`): several
+values ride a wrapper cell that the evaluator spreads onto the consumer,
+one value stays itself, none becomes the empty wrapper.
+
 Not yet present: `call/cc`, real file ports, the C ABI body, and
 `syntax-rules`.
 

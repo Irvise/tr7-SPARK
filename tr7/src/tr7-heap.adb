@@ -309,6 +309,19 @@ is
       Result := Hd;
    end New_Output_Port;
 
+   procedure New_Values
+     (H      : in out Heap_Type;
+      List   : Value;
+      Result : out Handle;
+      Ok     : out Boolean)
+   is
+   begin
+      Allocate (H, Cell_Values, Result, Ok);
+      if Ok then
+         H.Cells (Result.Index).Car := List;
+      end if;
+   end New_Values;
+
    procedure Set_Port_Pos
      (H   : in out Heap_Type;
       V   : Value;

@@ -2161,6 +2161,48 @@ is
       elsif Is_Symbol_Named (H, Head, "do") then
          Start_Do (H, M);
          return;
+      elsif Is_Symbol_Named (H, Head, "call-with-values") then
+         --  (call-with-values producer consumer): the consumer is evaluated
+         --  first and held while the producer runs, so its value is in hand
+         --  when the producer's values arrive.
+         Cdr_Of (H, M.Ctl, Rest, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Car_Of (H, Rest, Tmp, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Cdr_Of (H, Rest, Tail2, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Car_Of (H, Tail2, Expr_V, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Cdr_Of (H, Tail2, Rest, Good);
+         if not Good or else not Is_Nil (Rest) then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+
+         F := (Kind => K_Values,
+               Expr => Tmp,
+               Env  => M.Env,
+               others => <>);
+         Push (M, F, Good);
+         if not Good then
+            Fail (M, Error_Step_Limit);
+            return;
+         end if;
+         M.Ctl := Expr_V;
+         M.Mode := Mode_Eval;
+         return;
       elsif Is_Symbol_Named (H, Head, "case") then
          Cadr_Of (H, M.Ctl, Test, Good);
          if not Good then
@@ -2383,7 +2425,7 @@ is
 
          when Cell_String | Cell_Vector | Cell_Bytevector | Cell_Closure
             | Cell_Primitive | Cell_Environment | Cell_Continuation
-            | Cell_Input_Port | Cell_Output_Port =>
+            | Cell_Input_Port | Cell_Output_Port | Cell_Values =>
             M.Result := M.Ctl;
             M.Mode := Mode_Return;
 
@@ -2402,6 +2444,7 @@ is
    is
       F    : Frame;
       Good : Boolean;
+      C    : Cell;
       New_Args : Value;
       Proper   : Value;
       First    : Value;
@@ -2624,6 +2667,57 @@ is
             end if;
             F.Func := New_Args;
             Do_Advance (H, M, F);
+
+         when K_Values =>
+            --  The consumer has been evaluated; its value goes into Func
+            --  while the producer expression runs.
+            F.Func := M.Result;
+            F.Kind := K_Values_App;
+            Push (M, F, Good);
+            if not Good then
+               Fail (M, Error_Step_Limit);
+               return;
+            end if;
+            M.Ctl := F.Expr;
+            M.Env := F.Env;
+            M.Mode := Mode_Eval;
+
+         when K_Values_App =>
+            --  The producer expression has been evaluated: now call it, with
+            --  no arguments, over the frame that holds the consumer.
+            First := M.Result;
+            F.Kind := K_Values_Recv;
+            Push (M, F, Good);
+            if not Good then
+               Fail (M, Error_Step_Limit);
+               return;
+            end if;
+            Apply_Procedure (H, First, Nil_Value, M, B);
+
+         when K_Values_Recv =>
+            --  The producer has run.  A values wrapper carries every value
+            --  in its Car; anything else is the single value itself, which
+            --  becomes a one-element argument list.
+            First := F.Func;
+            if Is_Handle (M.Result) then
+               Fetch (H, To_Handle (M.Result), C, Good);
+               if Good and then C.Kind = Cell_Values then
+                  Rest := C.Car;
+               else
+                  Cons (H, M.Result, Nil_Value, Rest, Good);
+                  if not Good then
+                     Fail (M, Error_Heap_Full);
+                     return;
+                  end if;
+               end if;
+            else
+               Cons (H, M.Result, Nil_Value, Rest, Good);
+               if not Good then
+                  Fail (M, Error_Heap_Full);
+                  return;
+               end if;
+            end if;
+            Apply_Procedure (H, First, Rest, M, B);
 
          when K_Map =>
             --  The call for this round has just returned its value: keep it

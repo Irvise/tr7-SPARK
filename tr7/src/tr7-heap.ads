@@ -199,6 +199,17 @@ is
        Pre  => H.Ready,
        Post => H.Ready and then (if Ok then Result.Index in Valid_Cell_Index);
 
+   --  Wrap several values: the list already exists (an application's
+   --  argument list), so the cell only adopts it.
+   procedure New_Values
+     (H      : in out Heap_Type;
+      List   : Value;
+      Result : out Handle;
+      Ok     : out Boolean)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready and then (if Ok then Result.Index in Valid_Cell_Index);
+
    --  Move a port's position (input) or length (output).
    procedure Set_Port_Pos
      (H   : in out Heap_Type;

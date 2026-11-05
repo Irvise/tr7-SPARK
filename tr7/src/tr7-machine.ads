@@ -49,7 +49,17 @@ is
       K_Do_Body,
       --  do: one step expression has been evaluated and its value is waiting
       --  to be collected before the next step starts.
-      K_Do_Step);
+      K_Do_Step,
+      --  call-with-values: the consumer expression has been evaluated; its
+      --  value arrives next while the producer expression waits in Expr.
+      K_Values,
+      --  call-with-values: the consumer's value waits in Func while the
+      --  producer expression is evaluated.
+      K_Values_App,
+      --  call-with-values: the producer closure is being called with no
+      --  arguments; its values arrive next, to be spread onto the consumer
+      --  waiting in Func.
+      K_Values_Recv);
 
    type Frame is record
       Kind : Frame_Kind := K_If;

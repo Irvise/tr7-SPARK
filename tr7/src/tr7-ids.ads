@@ -70,6 +70,7 @@ is
       P_Port_P,
       P_Eof_Object_P,
       P_Div,
-      P_Error);
+      P_Error,
+      P_Values);
 
 end Tr7.Ids;

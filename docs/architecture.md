@@ -51,6 +51,18 @@ with that value.  `case` evaluates its key first (`K_Case`), then scans each
 clause's datum list with `Same_Value` -- `memv`'s relation, and `eq?`'s --
 matching immediate values by content and heap values by identity.
 
+`call-with-values` runs in three phases with a frame kind each: evaluate
+the consumer and hold it (`K_Values`), evaluate the producer
+(`K_Values_App`), call the producer with no arguments (`K_Values_Recv`),
+then spread its values onto the consumer.  Spreading is the whole trick: a
+`values` wrapper cell carries its values as a list in `Car` -- the
+kind-agnostic marking covers it -- anything else is the single value and
+becomes a one-element list.  The primitive keeps R7RS's shape: no values is
+a wrapper, one value is that value itself (so it binds and passes like any
+other), several become the wrapper.  A wrapper that leaks into a
+single-value context (a `define`, say) is a v1 deviation, recorded rather
+than checked at every binding site.
+
 `do` runs on three frame kinds, one per phase: `K_Do` receives the test's
 value, `K_Do_Body` the body's (discarded), and `K_Do_Step` each step's.
 Initializers are bound by the existing `K_Bind`, marked with `Alt = #t` so that

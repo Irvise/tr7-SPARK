@@ -684,6 +684,9 @@ is
                   when Cell_Output_Port =>
                      Put (B, "#<output-port>", Ok);
 
+                  when Cell_Values =>
+                     Put (B, "#<values>", Ok);
+
                   when Cell_Closure =>
                      Put (B, "#<procedure>", Ok);
 
