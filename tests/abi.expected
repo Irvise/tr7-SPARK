@@ -1,0 +1,5 @@
+id=tr7-ada version=0.1.0
+abi ok
+error: boom
+still alive
+abi: ok

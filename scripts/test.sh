@@ -28,4 +28,39 @@ else
    status=1
 fi
 
+#  C ABI: the generated stubs must match the header exactly.
+if python3 "$root/scripts/gen_abi.py" --check; then
+   echo "test: abi (stubs current) ok"
+else
+   echo "test: abi (stubs current) FAILED" >&2
+   status=1
+fi
+
+#  C ABI: bind the Ada runtime for a foreign main, link a real C program
+#  against the libraries, run it, and compare its report.  The linker
+#  constructor from gnatbind -a runs adainit before main, which is what
+#  makes the secondary stack (and every String the core returns) usable.
+if (
+   cd "$root/tr7_c"
+   alr exec -- sh -c '
+      set -eu
+      gnatbind -n -a tr7_c -Ilib -I../tr7/lib
+      gcc -c b~tr7_c.adb
+      install_dir=$(gcc -print-search-dirs | sed -n "s/^install: //p")
+      adalib="${install_dir%/}/adalib"
+      cc -std=c11 -Wall -Wextra -I include ../tests/abi_demo.c b~tr7_c.o \
+         lib/libTr7_C.a ../tr7/lib/libTr7.a -L"$adalib" -lgnat -lm \
+         -o /tmp/tr7-abi-demo
+   '
+) && /tmp/tr7-abi-demo > /tmp/tr7-abi.out 2> /tmp/tr7-abi.err \
+   && diff -u "$root/tests/abi.expected" /tmp/tr7-abi.out \
+   && python3 "$root/scripts/gen_abi.py" --check-lib "$root/tr7_c/lib/libTr7_C.a"
+then
+   echo "test: abi (C demo) ok"
+else
+   echo "test: abi (C demo) FAILED" >&2
+   cat /tmp/tr7-abi.err >&2 || true
+   status=1
+fi
+
 exit "$status"

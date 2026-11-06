@@ -336,6 +336,45 @@ recording because each looked like a different bug:
   giving `I <= N`, `while Mag > 0` giving `Mag >= 0`, a counter nothing
   decrements -- draw `condition is always True` warnings: delete them.
 
+## C ABI: calling the core from C
+
+The boundary crate (`tr7_c`) follows the sparklib idiom -- package
+`SPARK_Mode => On`, every signature with Pre/Post contracts, each
+subprogram individually `SPARK_Mode => Off` -- and because the crate
+builds with `-gnata` the contracts are *run-time* checked, which turns
+the C demo into a contract test as well as a behaviour test.  Two rules
+from the project's own notes applied again: in a postcondition the
+function result is `F'Result` (`Result` is undefined here, and the idiom
+notes already said so), and no assertion policy goes in the source --
+`-gnata` decides.
+
+What cost time was the link, and it is worth writing down:
+
+- **A SIGSEGV inside `system.secondary_stack.ss_mark` is the signature of
+  missing elaboration**, not of a bad pointer.  A C main linked against an
+  Ada static library runs no `adainit`, so the secondary stack -- used by
+  every function returning a `String` -- is still zeroed, and the first
+  such call dies.  The fix is `gnatbind -n -a`: the generated binder
+  exports `adainit` with `pragma Linker_Constructor`, the ELF
+  `.init_array` runs it before `main`, and the C host never has to know.
+- The binder needs the ALI files; in this layout they live in each
+  crate's `lib/`, not under `obj/`.
+- `libgnat.a` sits in the toolchain's `adalib/`, off gcc's default search
+  path.  `gcc -print-search-dirs` reports `install: .../` and `adalib`
+  hangs off that.  The link line is: C object, binder object,
+  `libTr7_C.a`, `libTr7.a` (dependency order), `-L$adalib -lgnat -lm`.
+- `gnatbind -o <path>` writes the path into `pragma Source_File_Name`,
+  which rejects directory separators: generate the binder in the working
+  directory.
+
+Smaller traps from the same batch: module-level `re.search(pat, text,
+pos)` passes `pos` as *flags* -- 500 includes `RE.LOCALE` and Python
+refuses the pattern -- so compile the pattern and call `.search(text,
+pos)` on it; an `External_Name` aspect on an *import* (`malloc`) is not
+an implemented symbol, so the generator counts only aspects that also say
+`Export => True`; and a struct-returning C stub cannot `return 0;` --
+`return (T){0};` zeroes scalars, pointers and structs alike.
+
 ## Performance: measure with the checks off
 
 Rule adopted after this episode: **benchmark a checks-off build, never the
