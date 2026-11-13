@@ -5,6 +5,7 @@ with Tr7.Config; use Tr7.Config;
 with Tr7.Pairs; use Tr7.Pairs;
 with Tr7.Writer; use Tr7.Writer;
 with Tr7.Reader;
+use type Tr7.Reader.Read_Status;
 
 package body Tr7.Primitives with
    SPARK_Mode => On
@@ -102,6 +103,22 @@ is
          when P_String_To_Symbol   => return "string->symbol";
          when P_Char_To_Integer    => return "char->integer";
          when P_Integer_To_Char    => return "integer->char";
+         when P_List_To_Vector     => return "list->vector";
+         when P_Vector_To_List     => return "vector->list";
+         when P_List_To_String     => return "list->string";
+         when P_String_To_List     => return "string->list";
+         when P_String_Copy        => return "string-copy";
+         when P_Number_To_String   => return "number->string";
+         when P_String_To_Number   => return "string->number";
+         when P_Exact_P            => return "exact?";
+         when P_Inexact_P          => return "inexact?";
+         when P_Zero_P             => return "zero?";
+         when P_Positive_P         => return "positive?";
+         when P_Negative_P         => return "negative?";
+         when P_Odd_P              => return "odd?";
+         when P_Even_P             => return "even?";
+         when P_Memv               => return "memv";
+         when P_Assv               => return "assv";
       end case;
    end Name_Of;
 
@@ -3592,6 +3609,445 @@ is
       Status := No_Error;
    end Integer_To_Char_Prim;
 
+   --  A numeric argument: fixnum or flonum.  Comparison predicates use the
+   --  two branches directly; conversions use the typed values.
+   procedure Number_Value
+     (V      : Value;
+      I      : out Fixnum;
+      F      : out Long_Float;
+      Is_Int : out Boolean;
+      Ok     : out Boolean)
+   is
+   begin
+      I := 0;
+      F := 0.0;
+      Is_Int := Is_Fixnum (V);
+      Ok := Is_Int or else Is_Flonum (V);
+      if Is_Int then
+         Get_Fixnum (V, I, Ok);
+         F := Long_Float (I);
+      elsif Is_Flonum (V) then
+         F := V.F;
+      end if;
+   end Number_Value;
+
+   procedure List_To_Vector_Prim
+     (H      : in out Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      N    : Natural;
+      Hd   : Handle;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 1, 1, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      Length (H, Arr (1), N, Good);
+      if not Good then
+         return;
+      end if;
+      New_Vector (H, Arr (1), N, Hd, Good);
+      if not Good then
+         Status := Error_Heap_Full;
+         return;
+      end if;
+      Result := From_Handle (Hd);
+      Status := No_Error;
+   end List_To_Vector_Prim;
+
+   procedure Vector_To_List_Prim
+     (H      : in out Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      C    : Cell;
+      Tmp  : Value;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 1, 1, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      Vector_Cell (H, Arr (1), C, Good);
+      if not Good then
+         return;
+      end if;
+      --  A fresh list: reverse twice rather than returning the vector's own
+      --  spine, so mutating one cannot change the other.
+      Reverse_List (H, C.Car, Tmp, Good);
+      if not Good then
+         Status := Error_Type;
+         return;
+      end if;
+      Reverse_List (H, Tmp, Result, Good);
+      if not Good then
+         Status := Error_Type;
+         return;
+      end if;
+      Status := No_Error;
+   end Vector_To_List_Prim;
+
+   procedure List_To_String_Prim
+     (H      : in out Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      N    : Natural;
+      Hd   : Handle;
+      Buf  : String (1 .. Max_Text) := (others => ' ');
+      Elem : Value;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 1, 1, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      Length (H, Arr (1), N, Good);
+      if not Good then
+         return;
+      end if;
+      if N > Max_Text then
+         Status := Error_Range;
+         return;
+      end if;
+      for I in 1 .. N loop
+         pragma Loop_Invariant (H.Ready);
+         Nth (H, Arr (1), I - 1, Elem, Good);
+         if not Good or else Elem.Kind /= Kind_Character then
+            return;
+         end if;
+         if Elem.C > 255 then
+            Status := Error_Range;
+            return;
+         end if;
+         Buf (I) := Character'Val (Integer (Elem.C));
+      end loop;
+      New_String (H, Buf (1 .. N), Hd, Good);
+      if not Good then
+         Status := Error_Heap_Full;
+         return;
+      end if;
+      Result := From_Handle (Hd);
+      Status := No_Error;
+   end List_To_String_Prim;
+
+   procedure String_To_List_Prim
+     (H      : in out Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      C    : Cell;
+      Acc  : Value := Nil_Value;
+      Cell_V : Value;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 1, 1, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      String_Cell (H, Arr (1), C, Good);
+      if not Good then
+         return;
+      end if;
+      --  Build from the end so the result is in string order.
+      for I in reverse 1 .. C.Name_Len loop
+         pragma Loop_Invariant (H.Ready);
+         Cell_V := From_Character
+           (Unsigned_32 (Character'Pos (C.Name (I))));
+         Cons (H, Cell_V, Acc, Result, Good);
+         if not Good then
+            Status := Error_Heap_Full;
+            return;
+         end if;
+         Acc := Result;
+      end loop;
+      Result := Acc;
+      Status := No_Error;
+   end String_To_List_Prim;
+
+   procedure String_Copy_Prim
+     (H      : in out Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      C    : Cell;
+      Hd   : Handle;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 1, 1, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      String_Cell (H, Arr (1), C, Good);
+      if not Good then
+         return;
+      end if;
+      New_String (H, Text_Of (C), Hd, Good);
+      if not Good then
+         Status := Error_Heap_Full;
+         return;
+      end if;
+      Result := From_Handle (Hd);
+      Status := No_Error;
+   end String_Copy_Prim;
+
+   procedure Number_To_String_Prim
+     (H      : in out Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      B    : Output_Buffer;
+      Hd   : Handle;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 1, 1, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      if not (Is_Fixnum (Arr (1)) or else Is_Flonum (Arr (1))) then
+         return;
+      end if;
+      Write_Value (H, Arr (1), B, Good);
+      if not Good then
+         Status := Error_Output_Full;
+         return;
+      end if;
+      if B.Len > Max_Text then
+         Status := Error_Range;
+         return;
+      end if;
+      declare
+         Text : String (1 .. Max_Text) := (others => ' ');
+      begin
+         for I in 1 .. B.Len loop
+            Text (I) := B.Data (I);
+         end loop;
+         New_String (H, Text (1 .. B.Len), Hd, Good);
+      end;
+      if not Good then
+         Status := Error_Heap_Full;
+         return;
+      end if;
+      Result := From_Handle (Hd);
+      Status := No_Error;
+   end Number_To_String_Prim;
+
+   procedure String_To_Number_Prim
+     (H      : in out Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      C    : Cell;
+      Pos  : Natural;
+      V    : Value;
+      St   : Tr7.Reader.Read_Status;
+      Space : Boolean;
+   begin
+      Result := False_Value;
+      Status := No_Error;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         Status := Error_Type;
+         return;
+      end if;
+      Check_Arity (Len, 1, 1, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      String_Cell (H, Arr (1), C, Good);
+      if not Good then
+         Status := Error_Type;
+         return;
+      end if;
+      if C.Name_Len = 0 then
+         return;
+      end if;
+
+      Pos := 0;
+      Tr7.Reader.Read_Datum (H, C.Name (1 .. C.Name_Len), Pos, V, St);
+      if St /= Tr7.Reader.Read_Ok then
+         return;
+      end if;
+      --  Only trailing whitespace may follow the number.  Pos is the last
+      --  consumed character (the reader's convention), so start at Pos + 1.
+      Pos := Pos + 1;
+      while Pos <= C.Name_Len loop
+         pragma Loop_Invariant (Pos >= 1);
+         pragma Loop_Invariant (Pos <= C.Name_Len + 1);
+         Space := C.Name (Pos) = ' '
+           or else C.Name (Pos) = Character'Val (9)
+           or else C.Name (Pos) = Character'Val (10)
+           or else C.Name (Pos) = Character'Val (13);
+         exit when not Space;
+         Pos := Pos + 1;
+      end loop;
+      if Pos <= C.Name_Len then
+         return;
+      end if;
+      if Is_Fixnum (V) or else Is_Flonum (V) then
+         Result := V;
+      end if;
+   end String_To_Number_Prim;
+
+   procedure Numeric_Predicate_Prim
+     (H      : Heap_Type;
+      Args   : Value;
+      P      : Primitive_Id;
+      Result : out Value;
+      Status : out Error_Code)
+     with Pre => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      I    : Fixnum;
+      F    : Long_Float;
+      Int  : Boolean;
+      Res  : Boolean;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 1, 1, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      if P = P_Exact_P then
+         if not (Is_Fixnum (Arr (1)) or else Is_Flonum (Arr (1))) then
+            return;
+         end if;
+         Result := Bool (Is_Fixnum (Arr (1)));
+         Status := No_Error;
+         return;
+      elsif P = P_Inexact_P then
+         if not (Is_Fixnum (Arr (1)) or else Is_Flonum (Arr (1))) then
+            return;
+         end if;
+         Result := Bool (Is_Flonum (Arr (1)));
+         Status := No_Error;
+         return;
+      end if;
+      Number_Value (Arr (1), I, F, Int, Good);
+      if not Good then
+         return;
+      end if;
+      case P is
+         when P_Zero_P =>
+            Res := (if Int then I = 0 else F = 0.0);
+         when P_Positive_P =>
+            Res := (if Int then I > 0 else F > 0.0);
+         when P_Negative_P =>
+            Res := (if Int then I < 0 else F < 0.0);
+         when P_Odd_P =>
+            if not Int then
+               return;
+            end if;
+            Res := I mod 2 /= 0;
+         when P_Even_P =>
+            if not Int then
+               return;
+            end if;
+            Res := I mod 2 = 0;
+         when others =>
+            Status := Error_Not_Implemented;
+            return;
+      end case;
+      Result := Bool (Res);
+      Status := No_Error;
+   end Numeric_Predicate_Prim;
+
    procedure Call
      (H      : in out Heap_Type;
       P      : Primitive_Id;
@@ -3746,10 +4202,10 @@ is
          when P_List_Ref =>
             List_Ref_Prim (H, Args, Result, Status);
 
-         when P_Assq =>
+         when P_Assq | P_Assv =>
             Assq_Prim (H, Args, Result, Status);
 
-         when P_Memq =>
+         when P_Memq | P_Memv =>
             Memq_Prim (H, Args, Result, Status);
 
          when P_Bytevector_Length =>
@@ -3824,6 +4280,31 @@ is
 
          when P_Integer_To_Char =>
             Integer_To_Char_Prim (H, Args, Result, Status);
+
+         when P_List_To_Vector =>
+            List_To_Vector_Prim (H, Args, Result, Status);
+
+         when P_Vector_To_List =>
+            Vector_To_List_Prim (H, Args, Result, Status);
+
+         when P_List_To_String =>
+            List_To_String_Prim (H, Args, Result, Status);
+
+         when P_String_To_List =>
+            String_To_List_Prim (H, Args, Result, Status);
+
+         when P_String_Copy =>
+            String_Copy_Prim (H, Args, Result, Status);
+
+         when P_Number_To_String =>
+            Number_To_String_Prim (H, Args, Result, Status);
+
+         when P_String_To_Number =>
+            String_To_Number_Prim (H, Args, Result, Status);
+
+         when P_Exact_P | P_Inexact_P | P_Zero_P | P_Positive_P
+           | P_Negative_P | P_Odd_P | P_Even_P =>
+            Numeric_Predicate_Prim (H, Args, P, Result, Status);
 
          when P_None =>
             return;

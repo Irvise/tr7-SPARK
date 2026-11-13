@@ -71,7 +71,8 @@ Results, one entry per closed step of the plan:
 | M4 C ABI (six entry points, 177 generated stubs) | 2,692 |
 | M5 collector proof (worklist + read-only closure check) | 2,895 |
 | core procedure coverage (type predicates, selectors, conversions, mutation) | 2,982 |
-| `eval` + `interaction-environment` | **2,995** |
+| `eval` + `interaction-environment` | 2,995 |
+| sequence conversions, numeric predicates, number/string I/O | **3,125** |
 
 Every row is 0 unproved, 0 justified, 0 warnings, with flow, initialization
 and non-aliasing fully proved and a warning-free build.
@@ -91,7 +92,7 @@ instead of asking the prover to reason about a wide multiply.
 
 ## Gold hardening audit (M5)
 
-At the accepted state (2026-11-13, 2,995 checks):
+At the accepted state (2026-11-13, 3,125 checks):
 
 - every unit under `tr7/src` is `SPARK_Mode => On`; `tr7i` and `tr7_c` are the
   documented `SPARK_Mode => Off` trusted boundary;
@@ -107,13 +108,13 @@ Summary by obligation category from `gnatprove.out`:
 
 | category | checks | proved |
 | --- | --- | --- |
-| Initialization | 969 | 969 |
+| Initialization | 1,035 | 1,035 |
 | Non-Aliasing | 12 | 12 |
-| Run-time Checks | 652 | 652 |
-| Assertions | 330 | 330 |
-| Functional Contracts | 939 | 939 |
+| Run-time Checks | 669 | 669 |
+| Assertions | 338 | 338 |
+| Functional Contracts | 978 | 978 |
 | Termination | 93 | 93 (65 by flow analysis, 28 by the provers) |
-| **Total** | **2,995** | **2,995** |
+| **Total** | **3,125** | **3,125** |
 
 ### Contract review
 

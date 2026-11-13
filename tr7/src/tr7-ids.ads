@@ -87,6 +87,23 @@ is
       P_Symbol_To_String,
       P_String_To_Symbol,
       P_Char_To_Integer,
-      P_Integer_To_Char);
+      P_Integer_To_Char,
+      --  Sequence conversions, numeric predicates and number/string I/O.
+      P_List_To_Vector,
+      P_Vector_To_List,
+      P_List_To_String,
+      P_String_To_List,
+      P_String_Copy,
+      P_Number_To_String,
+      P_String_To_Number,
+      P_Exact_P,
+      P_Inexact_P,
+      P_Zero_P,
+      P_Positive_P,
+      P_Negative_P,
+      P_Odd_P,
+      P_Even_P,
+      P_Memv,
+      P_Assv);
 
 end Tr7.Ids;

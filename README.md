@@ -82,6 +82,11 @@ the selectors `caar`/`cadr`/`cdar`/`cddr`; `symbol->string` /
 `eval` is available with `(interaction-environment)` as the top-level
 environment specifier (`tests/core.scm`); `load` is still outside v1.
 
+Sequence and number utilities include `list->vector`, `vector->list`,
+`list->string`, `string->list`, `string-copy`, `number->string`,
+`string->number`, `exact?`, `inexact?`, `zero?`, `positive?`, `negative?`,
+`odd?`, `even?`, `memv` and `assv` (`tests/core.scm`).
+
 `values` and `call-with-values` are in (`tests/values.scm`): several
 values ride a wrapper cell that the evaluator spreads onto the consumer,
 one value stays itself, none becomes the empty wrapper.
