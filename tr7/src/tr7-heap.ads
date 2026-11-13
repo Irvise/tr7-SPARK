@@ -23,7 +23,8 @@ is
    --  reach it, because there are at most Max_Cells distinct cells.
    Max_Roots : constant := 6 * Max_Cells + 8;
    subtype Root_Count is Natural range 0 .. Max_Roots;
-   type Root_Array is array (1 .. Max_Roots) of Valid_Cell_Index;
+   type Root_Array is array (1 .. Max_Roots) of Valid_Cell_Index
+     with Relaxed_Initialization;
 
    --  The mark worklist.  A cell is pushed when it is first marked, so a
    --  cell appears at most once and Max_Cells entries suffice for any graph
@@ -474,8 +475,9 @@ is
      (Closed_Car (H) and then Closed_Cdr (H) and then Closed_Env (H));
 
    function Roots_Marked (H : Heap_Type; Roots : Root_Array;
-                          Count : Root_Count) return Boolean is
-     (for all K in 1 .. Count => Is_Marked (H, Roots (K)));
+                          Count : Root_Count) return Boolean
+   is (for all K in 1 .. Count => Is_Marked (H, Roots (K)))
+     with Pre => (for all K in 1 .. Count => Roots (K)'Initialized);
 
    --  Collector: retire the previous cycle's marks by jumping Epoch past
    --  every mark in the arena (this cycle therefore starts clean, provably
@@ -501,6 +503,7 @@ is
       Count : Root_Count)
      with
        Pre  => H.Ready
+         and then (for all K in 1 .. Count => Roots (K)'Initialized)
          and then (for all K in 1 .. Count =>
                      H.Cells (Roots (K)).Kind /= Cell_Free),
        Post => H.Ready

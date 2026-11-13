@@ -61,7 +61,8 @@ is
       Fuel  : Natural)
       return Boolean
      is (for some K in 1 .. Count =>
-            Reachable (H, Roots (K), To, Fuel));
+            Reachable (H, Roots (K), To, Fuel))
+     with Pre => (for all K in 1 .. Count => Roots (K)'Initialized);
 
    --  The path induction: a marked cell with a path to To ends at a marked
    --  To, provided the worklist has drained and the marked set is closed.
@@ -104,6 +105,7 @@ is
          and then not H.Mark_Failed
          and then H.Mark_Top = 0
          and then Tr7.Heap.Closure (H)
+         and then (for all K in 1 .. Count => Roots (K)'Initialized)
          and then Tr7.Heap.Roots_Marked (H, Roots, Count)
          and then (for all J in Valid_Cell_Index =>
                      (if Tr7.Heap.Is_Marked (H, J)

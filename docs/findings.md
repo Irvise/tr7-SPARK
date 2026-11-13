@@ -525,7 +525,7 @@ Performance after the rewrite (checks off, `scripts/bench.sh`):
 
 | workload | M4 | M5 | M5 + inlined `Fetch` |
 | --- | --- | --- | --- |
-| 612 collections of an idle heap | 2.3 us each | 7.7 us each | ~8.5 us each |
+| 612 collections of an idle heap | 2.3 us each | 7.7 us each | ~6.5 us each |
 | `tests/gc.scm` (3,000-element list, 6,000 tail calls) | 0.11 s | 0.18 s | ~0.24 s |
 | the same under `--stress-gc` | 2.3 s | 1.1 s | ~1.1 s |
 | 500 datums of `(display 1)(newline)` | 0.005 s | 0.006 s | 0.005 s |

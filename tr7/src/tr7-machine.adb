@@ -4362,7 +4362,9 @@ is
       M   : Machine)
    is
       Msg   : Value;
-      Roots : Root_Array := (others => Valid_Cell_Index'First);
+      --  Relaxed initialization: only 1 .. Count is written and read, so
+      --  the array does not need a full zeroing pass per collection.
+      Roots : Root_Array;
       Count : Root_Count := 0;
 
       --  Resolve one root value to its live cell and append it.  Duplicates
@@ -4385,7 +4387,8 @@ is
       --  invariants, which the policy file compiles away.
       function In_Roots (V : Value) return Boolean is
         (Live_Cell (H, V) = 0
-         or else (for some K in 1 .. Count => Roots (K) = Live_Cell (H, V)));
+         or else (for some K in 1 .. Count => Roots (K) = Live_Cell (H, V)))
+        with Pre => (for all K in 1 .. Count => Roots (K)'Initialized);
 
    begin
       --  The CEK state is a complete root set between steps: control, the
@@ -4412,6 +4415,8 @@ is
          --  The list grows by at most six cells per frame plus the five
          --  direct roots, so the append guard can never drop a root.
          pragma Loop_Invariant (Count <= 6 * I + 5);
+         pragma Loop_Invariant
+           (for all K in 1 .. Count => Roots (K)'Initialized);
          --  Every root resolved so far is in the list: the reachability
          --  goal downstream is stated over this list, so completeness is
          --  what makes it a statement about the true roots.
