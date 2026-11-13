@@ -12,7 +12,9 @@ status=0
 stamp() { date +%s%N; }
 elapsed_ms() { echo $(( ($2 - $1) / 1000000 )); }
 
-for suite in smoke primitives core errors arity gc forms malformed cond bad-cond case bad-case strings index vectors vindex bytevectors bvindex brange lists numbers numovf defs defbad apply map qq bad-qq do bad-do flonums ports bad-ports div error bad-error values bad-values callcc bad-callcc wind bad-wind; do
+suites="smoke primitives core errors arity gc forms malformed cond bad-cond case bad-case strings index vectors vindex bytevectors bvindex brange lists numbers numovf defs defbad apply map qq bad-qq do bad-do flonums ports bad-ports div error bad-error values bad-values callcc bad-callcc wind bad-wind"
+
+for suite in $suites; do
    t0=$(stamp)
    "$root/tr7i/bin/tr7i" "$root/tests/$suite.scm" > "/tmp/tr7-$suite.out"
    t1=$(stamp)
@@ -24,8 +26,25 @@ for suite in smoke primitives core errors arity gc forms malformed cond bad-cond
    fi
 done
 
-#  Same suite with a collection at every safe point: any unrooted live object
-#  shows up here as a stale handle or a wrong answer.  If this takes more than
+#  Every suite again with a collection on a fixed cadence: any unrooted live
+#  object shows up here as a stale handle or a wrong answer.  (The gc suite
+#  has its own, heavier stress run below.)
+for suite in $suites; do
+   case "$suite" in
+      gc) continue ;;
+   esac
+   t0=$(stamp)
+   "$root/tr7i/bin/tr7i" --stress-gc "$root/tests/$suite.scm" > "/tmp/tr7-$suite-stress.out"
+   t1=$(stamp)
+   if diff -u "$root/tests/$suite.expected" "/tmp/tr7-$suite-stress.out"; then
+      echo "test: $suite (stress) ok ($(elapsed_ms "$t0" "$t1") ms)"
+   else
+      echo "test: $suite (stress) FAILED ($(elapsed_ms "$t0" "$t1") ms)" >&2
+      status=1
+   fi
+done
+
+#  The allocation-heavy gc suite with a collection on a fixed cadence.  If this takes more than
 #  a few seconds, something in the collector or an invariant has regressed.
 t0=$(stamp)
 "$root/tr7i/bin/tr7i" --stress-gc "$root/tests/gc.scm" > /tmp/tr7-gc-stress.out
