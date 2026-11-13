@@ -39,6 +39,11 @@ package Tr7_C with SPARK_Mode => On is
    function Is_Aligned (A : System.Address) return Boolean
      with SPARK_Mode => Off;  --  trusted: raw-address arithmetic
 
+   --  The config struct carries two pointers and is a different alignment
+   --  fact from an Engine object.
+   function Is_Aligned_Config (A : System.Address) return Boolean
+     with SPARK_Mode => Off;  --  trusted: raw-address arithmetic
+
    --  Contract support for Config_Init_Default: True when the four fields
    --  at Config hold the defaults this package writes (or Config is null).
    --  It reads through a raw address, so it is trusted like the bodies;
@@ -77,7 +82,7 @@ package Tr7_C with SPARK_Mode => On is
        Export         => True,
        External_Name  => "tr7_config_init_default",
        Pre            => Config = System.Null_Address
-                         or else Is_Aligned (Config),
+                         or else Is_Aligned_Config (Config),
        Post           => Config = System.Null_Address
                          or else Defaults_Written (Config);
 
@@ -93,7 +98,7 @@ package Tr7_C with SPARK_Mode => On is
        Export         => True,
        External_Name  => "tr7_engine_create",
        Pre            => Config = System.Null_Address
-                         or else Is_Aligned (Config),
+                         or else Is_Aligned_Config (Config),
        Post           => Engine_Create'Result = System.Null_Address
                          or else Is_Aligned (Engine_Create'Result);
 
