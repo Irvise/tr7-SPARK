@@ -67,6 +67,14 @@ is
       --  its normal return and an escape land here, and its Sym is the
       --  continuation's identity.
       K_CallCC_Recv,
+      --  eval: the environment expression has been evaluated and its value
+      --  waits in the popped frame's place; the expression to evaluate is in
+      --  Expr and the environment to use is the result.
+      K_Eval,
+      --  eval: the environment value has been checked; the expression
+      --  argument is being evaluated in the caller's environment and its
+      --  value will be evaluated in the environment held in this frame.
+      K_Eval_Expr,
       --  dynamic-wind: the `before` expression is being evaluated; its
       --  value (the before procedure) arrives next and rides in Func while
       --  the thunk expression is evaluated.  Expr holds the thunk

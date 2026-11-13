@@ -2540,6 +2540,88 @@ is
          return;
       end if;
 
+      if Is_Symbol_Named (H, Head, "interaction-environment") then
+         --  The top-level environment, as a first-class value.  R7RS calls
+         --  this a procedure; with no OS or library machinery here it is a
+         --  zero-argument special form, which is enough for (eval ...).
+         Cdr_Of (H, M.Ctl, Rest, Good);
+         if not Good or else not Is_Nil (Rest) then
+            Fail (M, Error_Wrong_Arity);
+            return;
+         end if;
+         declare
+            Root  : Handle := M.Env;
+            E     : Cell;
+            Found : Boolean := False;
+         begin
+            for Depth in 0 .. Max_Env_Depth loop
+               pragma Unreferenced (Depth);
+               Fetch (H, Root, E, Good);
+               if not Good or else E.Kind /= Cell_Environment then
+                  Fail (M, Error_Type);
+                  return;
+               end if;
+               if E.Env = Null_Handle then
+                  Found := True;
+                  exit;
+               end if;
+               Root := E.Env;
+            end loop;
+            if not Found then
+               Fail (M, Error_Type);
+               return;
+            end if;
+            M.Result := From_Handle (Root);
+            M.Mode := Mode_Return;
+         end;
+         return;
+      end if;
+
+      if Is_Symbol_Named (H, Head, "eval") then
+         --  (eval expression environment): evaluate the environment value
+         --  first, then run the expression in it.  K_Eval carries the
+         --  expression across that first evaluation; the second evaluation
+         --  is in tail position because the frame has been popped.
+         Cdr_Of (H, M.Ctl, Rest, Good);
+         if not Good or else Is_Nil (Rest) then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Car_Of (H, Rest, Expr_V, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Cdr_Of (H, Rest, Tail, Good);
+         if not Good or else Is_Nil (Tail) then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Car_Of (H, Tail, Tmp, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Cdr_Of (H, Tail, Tail2, Good);
+         if not Good or else not Is_Nil (Tail2) then
+            Fail (M, Error_Wrong_Arity);
+            return;
+         end if;
+         F := (Kind => K_Eval,
+               Expr => Expr_V,
+               Alt  => Tmp,
+               Env  => M.Env,
+               others => <>);
+         Push (M, F, Good);
+         if not Good then
+            Fail (M, Error_Step_Limit);
+            return;
+         end if;
+         M.Ctl := Tmp;
+         M.Mode := Mode_Eval;
+         return;
+      end if;
+
       --  Ordinary application: evaluate the operator first.
       Cdr_Of (H, M.Ctl, Rest, Good);
       if not Good then
@@ -2846,6 +2928,35 @@ is
             end if;
             F.Func := New_Args;
             Do_Advance (H, M, F);
+
+         when K_Eval =>
+            --  M.Result is the environment value.  Now evaluate the
+            --  expression argument in the caller's environment; its value
+            --  is the datum to run in the target environment.
+            if not Is_Handle (M.Result) then
+               Fail (M, Error_Type);
+               return;
+            end if;
+            Fetch (H, To_Handle (M.Result), C, Good);
+            if not Good or else C.Kind /= Cell_Environment then
+               Fail (M, Error_Type);
+               return;
+            end if;
+            F.Kind := K_Eval_Expr;
+            F.Env := To_Handle (M.Result);
+            Push (M, F, Good);
+            if not Good then
+               Fail (M, Error_Step_Limit);
+               return;
+            end if;
+            M.Ctl := F.Expr;
+            M.Mode := Mode_Eval;
+
+         when K_Eval_Expr =>
+            --  M.Result is the expression to evaluate; F.Env is where.
+            M.Env := F.Env;
+            M.Ctl := M.Result;
+            M.Mode := Mode_Eval;
 
          when K_DW_Before =>
             --  The `before` expression has been evaluated; its value (the

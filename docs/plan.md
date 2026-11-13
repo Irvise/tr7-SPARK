@@ -4,9 +4,9 @@
 
 M0–M5 are complete and the v1 scope below is implemented: the verified core,
 REPL and script runner, the C ABI subset, the conformance suites, and the
-mark-sweep reachability proof.  The gate is green at 2,982 checks (level 4,
+mark-sweep reachability proof.  The gate is green at 2,995 checks (level 4,
 5 s per check, `--checks-as-errors`), with no unproved, justified or assumed
-checks and 45 green suites (each also run under stress GC).
+checks and 46 green suites (each also run under stress GC).
 
 Design decisions taken along the way are recorded in `docs/findings.md`; the
 ones that shape the code most are the product-safe fixnum range
@@ -15,8 +15,8 @@ mark epochs instead of mark bits, and the collector split into worklist drain
 plus read-only closure verification (`docs/M5-TASK.md`).
 
 Work explicitly left outside v1 is listed under "Not in v1" below (notably
-`syntax-rules`, libraries/`import`, `eval`/`load`, full re-entrant `call/cc`
-and real file ports).
+`syntax-rules`, libraries/`import`, `load`, full re-entrant `call/cc`
+and real file ports; `eval` is now available.
 
 ## Goal
 
@@ -57,7 +57,7 @@ In v1:
 - C ABI: core subset implemented, all other `tr7.h` symbols present as stubs;
 - REPL and script runner.
 
-Not in v1: `syntax-rules`, libraries/imports, `eval`/`load`, records, SRFIs,
+Not in v1: `syntax-rules`, libraries/imports, `load`, records, SRFIs,
 full Unicode tables, bignums/rationals/complex, full re-entrant `call/cc`, the
 full TR7 debug/trace/extension API, and bit-level tagged-pointer ABI
 compatibility.

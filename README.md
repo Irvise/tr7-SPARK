@@ -79,6 +79,9 @@ Core procedure coverage includes the type predicates `boolean?`, `symbol?`,
 the selectors `caar`/`cadr`/`cdar`/`cddr`; `symbol->string` /
 `string->symbol`; and `char->integer` / `integer->char` (`tests/core.scm`).
 
+`eval` is available with `(interaction-environment)` as the top-level
+environment specifier (`tests/core.scm`); `load` is still outside v1.
+
 `values` and `call-with-values` are in (`tests/values.scm`): several
 values ride a wrapper cell that the evaluator spreads onto the consumer,
 one value stays itself, none becomes the empty wrapper.

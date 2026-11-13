@@ -32,3 +32,9 @@
 (show (integer->char 65))
 (show (char->integer (integer->char 955)))
 (show (integer->char 955))
+
+(define z 42)
+(show (eval '(+ 1 2) (interaction-environment)))
+(show (eval 'z (interaction-environment)))
+(show (eval '(let ((y 2)) (* y 5)) (interaction-environment)))
+(show (eval (list '+ 2 3) (interaction-environment)))
