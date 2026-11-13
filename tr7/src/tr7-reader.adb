@@ -8,7 +8,6 @@ package body Tr7.Reader with
    SPARK_Mode => On
 is
 
-
    function Is_Space (C : Character) return Boolean is
      (C = ' ' or else C = HT or else C = LF
         or else C = CR or else C = FF or else C = VT);

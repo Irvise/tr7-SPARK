@@ -59,6 +59,13 @@ package body Tr7_C with SPARK_Mode => Off is
                     (Tr7.Engine.Engine'Alignment) = 0;
    end Is_Aligned;
 
+   function Is_Aligned_Config (A : System.Address) return Boolean is
+   begin
+      return System.Storage_Elements.To_Integer (A)
+               mod System.Storage_Elements.Integer_Address
+                    (Config_Record'Alignment) = 0;
+   end Is_Aligned_Config;
+
    function Defaults_Written (Config : System.Address) return Boolean is
       C : Config_Record;
    begin
@@ -131,6 +138,9 @@ package body Tr7_C with SPARK_Mode => Off is
       --  not honored -- the arena lives in Ada's heap -- which is the
       --  documented deviation, not a silent one.
       if Config /= System.Null_Address then
+         if not Is_Aligned_Config (Config) then
+            return System.Null_Address;
+         end if;
          declare
             C : constant Config_Record := To_Config_Ptr (Config).all;
          begin
@@ -196,6 +206,7 @@ package body Tr7_C with SPARK_Mode => Off is
    begin
       if Engine = System.Null_Address
         or else Cmd = Interfaces.C.Strings.Null_Ptr
+        or else not Is_Aligned (Engine)
       then
          return 0;
       end if;
