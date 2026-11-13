@@ -119,8 +119,10 @@ not declared as a crate dependency, so `alr build` requires only GNAT and GPR.
 
 - `tr7`: `SPARK_Mode => On`, level 4, `--checks-as-errors`, zero
   unproved/justified checks, zero `Assume`/`Annotate`/`Suppress`.
-- GC safety proved first; reachability/liveness (`marked = reachable`) is the
-  main M5 proof goal. Stress-GC mode collects at every allocation.
+- GC safety and reachability/liveness (`marked = reachable`) are both proved:
+  the marked set is closed after draining, and `Tr7.Reach`'s path-induction
+  lemma carries it to every cell reachable from a root.  Stress-GC mode
+  collects on a fixed cadence.
 - `scripts/prove.sh` clears `obj/gnatprove`, runs with `--timeout=5 -j4` and
   greps the summary for `medium:`/`high:`/`unproved`/`failed`; exit code 0
   alone is not trusted.  Never overlap two runs on the same `obj` directory.
@@ -134,7 +136,7 @@ not declared as a crate dependency, so `alr build` requires only GNAT and GPR.
 | M2 | 2-3 weeks | Reader/writer, full CEK machine, core special forms, tail calls |
 | M3 | 2 weeks | Core primitives, errors, restricted `call/cc`, `dynamic-wind`, `values` -- **complete**: `error`, `values`/`call-with-values`, restricted `call/cc` and `dynamic-wind` are in (`tests/error.scm`, `tests/values.scm`, `tests/callcc.scm`, `tests/wind.scm`) |
 | M4 | 2 weeks | String ports, REPL, C ABI subset + generated stubs, core test suite -- **complete**: string ports (`tests/ports.scm`), the REPL, the C ABI (six contracted entry points, 177 generated stubs, `tests/abi_demo.c`) and 44 test runs |
-| M5 | 2-3 weeks | Mark-sweep GC proof, Gold hardening, contracts, benchmarks, report -- **in progress**, see [`M5-TASK.md`](M5-TASK.md) |
+| M5 | 2-3 weeks | Mark-sweep GC proof, Gold hardening, contracts, benchmarks, report -- **complete**: `Tr7.Reach` proves reachable cells are marked and the sweep never frees them, the collector is split into epoch jump / worklist drain / read-only verification / sweep, and the gate is green with zero unproved checks |
 
 Estimated hand-written core size: 6-8k lines of Ada, plus generated C ABI stubs
 and tests.

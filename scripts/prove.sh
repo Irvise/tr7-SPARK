@@ -20,7 +20,7 @@ status=0
    --level=4 \
    --checks-as-errors=on \
    --timeout="$timeout" \
-   -j4 > "$log" 2>&1 || status=$?
+   -j6 > "$log" 2>&1 || status=$?
 cat "$log"
 
 if [ "$status" -ne 0 ]; then
