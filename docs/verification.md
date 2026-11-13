@@ -23,12 +23,13 @@ This is not a machine-checked proof of R7RS semantics.  In particular:
 - C ABI compatibility is function-level, not bit-level tagged-pointer
   compatibility.
 
-## M5 in progress
+## M5 complete
 
-M5 (GC reachability/liveness proof) is in progress and the gate on the work
-branch `m5-wip` is red.  The full handoff -- goal, validated architecture,
-failing checks, experiments tried and resume plan -- is in
-[`docs/M5-TASK.md`](M5-TASK.md).  The numbers below describe `master`.
+M5 (GC reachability/liveness proof) is complete: after a successful
+collection the marked set is closed, every root is marked, and `Tr7.Reach`
+proves every cell reachable from a root is marked, so the sweep never frees
+live data.  The architecture and the lessons from the failed first attempt are
+recorded in [`docs/M5-TASK.md`](M5-TASK.md) and `docs/findings.md`.
 
 ## Running the proof
 
