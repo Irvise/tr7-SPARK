@@ -4,7 +4,7 @@
 
 M0–M5 are complete and the v1 scope below is implemented: the verified core,
 REPL and script runner, the C ABI subset, the conformance suites, and the
-mark-sweep reachability proof.  The gate is green at 3,963 checks (level 4,
+mark-sweep reachability proof.  The gate is green at 4,008 checks (level 4,
 5 s per check, `--checks-as-errors`), with no unproved, justified or assumed
 checks and 47 green suites (each also run under stress GC).
 

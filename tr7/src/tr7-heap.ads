@@ -114,6 +114,72 @@ is
        Pre  => H.Ready,
        Post => (if Ok then Valid_Handle (C, Hd));
 
+   --  Field-level reads for the hot paths (pair traversal and environment
+   --  lookup).  A whole Fetch copies the 256-byte text buffer with the cell;
+   --  these read only the fields the caller needs, so the optimisation does
+   --  not depend on the compiler scalarising an aggregate.
+   procedure Pair_Fields
+     (H   : Heap_Type;
+      Hd  : Handle;
+      Car : out Value;
+      Cdr : out Value;
+      Ok  : out Boolean)
+     with
+       Inline => True,
+       Pre  => H.Ready,
+       Post => (if Ok
+                then Hd.Index in Valid_Cell_Index
+                  and then H.Cells (Hd.Index).Kind = Cell_Pair
+                  and then H.Cells (Hd.Index).Generation = Hd.Generation
+                  and then Car = H.Cells (Hd.Index).Car
+                  and then Cdr = H.Cells (Hd.Index).Cdr);
+
+   procedure Pair_Car
+     (H   : Heap_Type;
+      Hd  : Handle;
+      Car : out Value;
+      Ok  : out Boolean)
+     with
+       Inline => True,
+       Pre  => H.Ready,
+       Post => (if Ok then Car = H.Cells (Hd.Index).Car);
+
+   procedure Pair_Cdr
+     (H   : Heap_Type;
+      Hd  : Handle;
+      Cdr : out Value;
+      Ok  : out Boolean)
+     with
+       Inline => True,
+       Pre  => H.Ready,
+       Post => (if Ok then Cdr = H.Cells (Hd.Index).Cdr);
+
+   procedure Environment_Bindings
+     (H        : Heap_Type;
+      Hd       : Handle;
+      Bindings : out Value;
+      Ok       : out Boolean)
+     with
+       Inline => True,
+       Pre  => H.Ready,
+       Post => (if Ok then Bindings = H.Cells (Hd.Index).Car);
+
+   procedure Environment_Fields
+     (H      : Heap_Type;
+      Hd     : Handle;
+      Parent : out Handle;
+      Bindings : out Value;
+      Ok     : out Boolean)
+     with
+       Inline => True,
+       Pre  => H.Ready,
+       Post => (if Ok
+                then Hd.Index in Valid_Cell_Index
+                  and then H.Cells (Hd.Index).Kind = Cell_Environment
+                  and then H.Cells (Hd.Index).Generation = Hd.Generation
+                  and then Parent = H.Cells (Hd.Index).Env
+                  and then Bindings = H.Cells (Hd.Index).Car);
+
    procedure Kind_Of
      (H  : Heap_Type;
       Hd : Handle;

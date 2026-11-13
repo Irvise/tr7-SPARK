@@ -119,6 +119,108 @@ is
       end if;
    end Fetch;
 
+   procedure Pair_Fields
+     (H   : Heap_Type;
+      Hd  : Handle;
+      Car : out Value;
+      Cdr : out Value;
+      Ok  : out Boolean)
+   is
+   begin
+      Car := Nil_Value;
+      Cdr := Nil_Value;
+      Ok := False;
+      if Hd.Index not in Valid_Cell_Index then
+         return;
+      end if;
+      if H.Cells (Hd.Index).Kind /= Cell_Pair
+        or else H.Cells (Hd.Index).Generation /= Hd.Generation
+      then
+         return;
+      end if;
+      Car := H.Cells (Hd.Index).Car;
+      Cdr := H.Cells (Hd.Index).Cdr;
+      Ok := True;
+   end Pair_Fields;
+
+   procedure Pair_Car
+     (H   : Heap_Type;
+      Hd  : Handle;
+      Car : out Value;
+      Ok  : out Boolean)
+   is
+   begin
+      Car := Nil_Value;
+      Ok := False;
+      if Hd.Index in Valid_Cell_Index
+        and then H.Cells (Hd.Index).Kind = Cell_Pair
+        and then H.Cells (Hd.Index).Generation = Hd.Generation
+      then
+         Car := H.Cells (Hd.Index).Car;
+         Ok := True;
+      end if;
+   end Pair_Car;
+
+   procedure Pair_Cdr
+     (H   : Heap_Type;
+      Hd  : Handle;
+      Cdr : out Value;
+      Ok  : out Boolean)
+   is
+   begin
+      Cdr := Nil_Value;
+      Ok := False;
+      if Hd.Index in Valid_Cell_Index
+        and then H.Cells (Hd.Index).Kind = Cell_Pair
+        and then H.Cells (Hd.Index).Generation = Hd.Generation
+      then
+         Cdr := H.Cells (Hd.Index).Cdr;
+         Ok := True;
+      end if;
+   end Pair_Cdr;
+
+   procedure Environment_Bindings
+     (H        : Heap_Type;
+      Hd       : Handle;
+      Bindings : out Value;
+      Ok       : out Boolean)
+   is
+   begin
+      Bindings := Nil_Value;
+      Ok := False;
+      if Hd.Index in Valid_Cell_Index
+        and then H.Cells (Hd.Index).Kind = Cell_Environment
+        and then H.Cells (Hd.Index).Generation = Hd.Generation
+      then
+         Bindings := H.Cells (Hd.Index).Car;
+         Ok := True;
+      end if;
+   end Environment_Bindings;
+
+   procedure Environment_Fields
+     (H        : Heap_Type;
+      Hd       : Handle;
+      Parent   : out Handle;
+      Bindings : out Value;
+      Ok       : out Boolean)
+   is
+   begin
+      Parent := Null_Handle;
+      Bindings := Nil_Value;
+      Ok := False;
+      if Hd.Index not in Valid_Cell_Index then
+         return;
+      end if;
+      if H.Cells (Hd.Index).Kind /= Cell_Environment
+        or else H.Cells (Hd.Index).Generation /= Hd.Generation
+      then
+         return;
+      end if;
+      Parent := H.Cells (Hd.Index).Env;
+      Bindings := H.Cells (Hd.Index).Car;
+      Ok := True;
+   end Environment_Fields;
+
    procedure Kind_Of
      (H    : Heap_Type;
       Hd   : Handle;

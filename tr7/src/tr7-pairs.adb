@@ -46,12 +46,11 @@ is
       Result : out Value;
       Ok     : out Boolean)
    is
-      C : Cell;
    begin
       Result := Nil_Value;
-      Pair_Cell (H, V, C, Ok);
-      if Ok then
-         Result := C.Car;
+      Ok := False;
+      if Is_Handle (V) then
+         Pair_Car (H, To_Handle (V), Result, Ok);
       end if;
    end Car_Of;
 
@@ -61,12 +60,11 @@ is
       Result : out Value;
       Ok     : out Boolean)
    is
-      C : Cell;
    begin
       Result := Nil_Value;
-      Pair_Cell (H, V, C, Ok);
-      if Ok then
-         Result := C.Cdr;
+      Ok := False;
+      if Is_Handle (V) then
+         Pair_Cdr (H, To_Handle (V), Result, Ok);
       end if;
    end Cdr_Of;
 

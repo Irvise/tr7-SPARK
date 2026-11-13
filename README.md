@@ -124,7 +124,7 @@ dotted tail are not supported.
 library system, but the core bindings are already in the initial environment,
 so R7RS scripts that open with `(import (scheme base))` run.
 
-Known limits: `call/cc` holds two continuation frames per dynamic extent, so
+Known limits: `call/cc` holds one continuation frame per dynamic extent, so
 recursion through it is not a proper tail call; `+inf.0`/`-inf.0`/`+nan.0`
 are written by the printer but not accepted by the reader.  Not yet present:
 real file ports, `load`, a real library system and full hygienic

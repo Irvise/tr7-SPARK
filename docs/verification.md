@@ -79,7 +79,8 @@ Results, one entry per closed step of the plan:
 | comparisons, string/vector constructors and list utilities | 3,558 |
 | `let-values` / `let*-values` (rewritten to `call-with-values`) | 3,600 |
 | `import` compatibility (accepted, no library system) | 3,601 |
-| review follow-up: arithmetic, cycle bounds, reader/writer, eval forms | **3,963** |
+| review follow-up: arithmetic, cycle bounds, reader/writer, eval forms | 3,963 |
+| field-level heap accessors for pairs and environments | **4,008** |
 
 Every row is 0 unproved, 0 justified, 0 warnings, with flow, initialization
 and non-aliasing fully proved and a warning-free build.
@@ -99,7 +100,7 @@ instead of asking the prover to reason about a wide multiply.
 
 ## Gold hardening audit (M5)
 
-At the accepted state (2026-11-13, 3,963 checks):
+At the accepted state (2026-11-13, 4,008 checks):
 
 - every unit under `tr7/src` is `SPARK_Mode => On`; `tr7i` and `tr7_c` are the
   documented `SPARK_Mode => Off` trusted boundary;
@@ -115,13 +116,13 @@ Summary by obligation category from `gnatprove.out`:
 
 | category | checks | proved |
 | --- | --- | --- |
-| Initialization | 1,327 | 1,327 |
+| Initialization | 1,338 | 1,338 |
 | Non-Aliasing | 12 | 12 |
-| Run-time Checks | 862 | 862 |
+| Run-time Checks | 890 | 890 |
 | Assertions | 402 | 402 |
-| Functional Contracts | 1,229 | 1,229 |
+| Functional Contracts | 1,235 | 1,235 |
 | Termination | 131 | 131 (70 by flow analysis, 61 by the provers) |
-| **Total** | **3,963** | **3,963** |
+| **Total** | **4,008** | **4,008** |
 
 ### Contract review
 

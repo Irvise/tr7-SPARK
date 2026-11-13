@@ -1,4 +1,3 @@
-with Tr7.Cells; use Tr7.Cells;
 with Tr7.Config; use Tr7.Config;
 with Tr7.Pairs; use Tr7.Pairs;
 
@@ -6,20 +5,6 @@ package body Tr7.Env with
    SPARK_Mode => On
 is
 
-
-   procedure Environment_Cell
-     (H   : Heap_Type;
-      Env : Handle;
-      C   : out Cell;
-      Ok  : out Boolean)
-     with Pre => H.Ready
-   is
-   begin
-      Fetch (H, Env, C, Ok);
-      if Ok and then C.Kind /= Cell_Environment then
-         Ok := False;
-      end if;
-   end Environment_Cell;
 
    --  Locate the (symbol . value) cell for Sym in one frame.  Returning the
    --  cell rather than its value lets every caller both read and update the
@@ -49,32 +34,30 @@ is
          end if;
 
          declare
-            Node  : Cell;
-            Binding_Cell : Cell;
-            Good  : Boolean;
+            Node_Car, Node_Cdr : Value;
+            Bind_Car : Value;
+            Good : Boolean;
          begin
-            Fetch (H, To_Handle (Cur), Node, Good);
-            if not Good or else Node.Kind /= Cell_Pair
-              or else not Is_Handle (Node.Car)
-            then
+            Pair_Fields (H, To_Handle (Cur), Node_Car, Node_Cdr, Good);
+            if not Good or else not Is_Handle (Node_Car) then
                return;
             end if;
-            Fetch (H, To_Handle (Node.Car), Binding_Cell, Good);
-            if not Good or else Binding_Cell.Kind /= Cell_Pair then
+            Pair_Car (H, To_Handle (Node_Car), Bind_Car, Good);
+            if not Good then
                return;
             end if;
 
             if Is_Handle (Sym)
-              and then Is_Handle (Binding_Cell.Car)
-              and then Same_Handle (To_Handle (Binding_Cell.Car), To_Handle (Sym))
+              and then Is_Handle (Bind_Car)
+              and then Same_Handle (To_Handle (Bind_Car), To_Handle (Sym))
             then
-               Binding := To_Handle (Node.Car);
+               Binding := To_Handle (Node_Car);
                Found := True;
                Ok := True;
                return;
             end if;
 
-            Cur := Node.Cdr;
+            Cur := Node_Cdr;
          end;
       end loop;
    end Find_In_Frame;
@@ -96,7 +79,7 @@ is
       Val : Value;
       Ok  : out Boolean)
    is
-      E       : Cell;
+      Bindings : Value;
       Found   : Boolean;
       Valid   : Boolean;
       Bind    : Handle;
@@ -105,12 +88,12 @@ is
       Hd      : Handle;
    begin
       Ok := False;
-      Environment_Cell (H, Env, E, Valid);
+      Environment_Bindings (H, Env, Bindings, Valid);
       if not Valid then
          return;
       end if;
 
-      Find_In_Frame (H, E.Car, Sym, Bind, Found, Valid);
+      Find_In_Frame (H, Bindings, Sym, Bind, Found, Valid);
       if not Valid then
          return;
       end if;
@@ -124,7 +107,7 @@ is
             return;
          end if;
          Binding := From_Handle (Hd);
-         Cons (H, Binding, E.Car, New_List, Valid);
+         Cons (H, Binding, Bindings, New_List, Valid);
          if not Valid or else Env.Index not in Valid_Cell_Index then
             return;
          end if;
@@ -141,7 +124,8 @@ is
       Status : out Error_Code)
    is
       Cur_Env : Handle := Env;
-      E       : Cell;
+      Parent  : Handle;
+      Bindings : Value;
       Valid   : Boolean;
       Found   : Boolean;
       Bind    : Handle;
@@ -153,13 +137,13 @@ is
             Status := Error_Unbound;
             return;
          end if;
-         Environment_Cell (H, Cur_Env, E, Valid);
+         Environment_Fields (H, Cur_Env, Parent, Bindings, Valid);
          if not Valid then
             Status := Error_Type;
             return;
          end if;
 
-         Find_In_Frame (H, E.Car, Sym, Bind, Found, Valid);
+         Find_In_Frame (H, Bindings, Sym, Bind, Found, Valid);
          if not Valid then
             Status := Error_Type;
             return;
@@ -171,7 +155,7 @@ is
             return;
          end if;
 
-         Cur_Env := E.Env;
+         Cur_Env := Parent;
       end loop;
       Status := Error_Env_Depth;
    end Set;
@@ -184,8 +168,9 @@ is
       Status : out Error_Code)
    is
       Cur_Env : Handle := Env;
-      E       : Cell;
-      B       : Cell;
+      Parent  : Handle;
+      Bindings : Value;
+      B_Cdr : Value;
       Valid   : Boolean;
       Found   : Boolean;
       Bind    : Handle;
@@ -197,29 +182,29 @@ is
             Status := Error_Unbound;
             return;
          end if;
-         Environment_Cell (H, Cur_Env, E, Valid);
+         Environment_Fields (H, Cur_Env, Parent, Bindings, Valid);
          if not Valid then
             Status := Error_Type;
             return;
          end if;
 
-         Find_In_Frame (H, E.Car, Sym, Bind, Found, Valid);
+         Find_In_Frame (H, Bindings, Sym, Bind, Found, Valid);
          if not Valid then
             Status := Error_Type;
             return;
          end if;
          if Found then
-            Fetch (H, Bind, B, Valid);
-            if not Valid or else B.Kind /= Cell_Pair then
+            Pair_Cdr (H, Bind, B_Cdr, Valid);
+            if not Valid then
                Status := Error_Type;
                return;
             end if;
-            Val := B.Cdr;
+            Val := B_Cdr;
             Status := No_Error;
             return;
          end if;
 
-         Cur_Env := E.Env;
+         Cur_Env := Parent;
       end loop;
       Status := Error_Env_Depth;
    end Lookup;
