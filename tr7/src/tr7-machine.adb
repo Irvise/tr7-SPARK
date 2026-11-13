@@ -1,5 +1,6 @@
 with Tr7.Cells; use Tr7.Cells;
 with Tr7.Env; use Tr7.Env;
+with Tr7.Macros;
 with Tr7.Pairs; use Tr7.Pairs;
 with Tr7.Primitives; use Tr7.Primitives;
 with Tr7.Reach;
@@ -2031,6 +2032,49 @@ is
          return;
       end if;
 
+      if Is_Symbol_Named (H, Head, "define-syntax") then
+         --  (define-syntax name (syntax-rules ...)): build the transformer
+         --  and install it like any other definition; expansion happens when
+         --  the macro name appears in operator position.
+         Cadr_Of (H, M.Ctl, Name, Good);
+         if not Good or else not Is_Handle (Name) then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Caddr_Of (H, M.Ctl, Expr_V, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Cddr_Of (H, M.Ctl, Tail, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Cdr_Of (H, Tail, Tail2, Good);
+         if not Good or else not Is_Nil (Tail2) then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Tr7.Macros.Build (H, Expr_V, Tmp, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         F := (Kind => K_Define,
+               Sym  => Name,
+               Env  => M.Env,
+               others => <>);
+         Push (M, F, Good);
+         if not Good then
+            Fail (M, Error_Step_Limit);
+            return;
+         end if;
+         M.Result := Tmp;
+         M.Mode := Mode_Return;
+         return;
+      end if;
+
       if Is_Symbol_Named (H, Head, "define") then
          Cadr_Of (H, M.Ctl, Name, Good);
          if not Good then
@@ -2622,6 +2666,33 @@ is
          return;
       end if;
 
+      --  A macro use: the head is a symbol bound to a transformer.  Expand
+      --  it and evaluate the expansion in the same step; the expansion can
+      --  itself contain macro uses, handled on subsequent steps.
+      if Is_Handle (Head) then
+         declare
+            Bound : Value;
+            MC    : Cell;
+            Mok   : Boolean;
+         begin
+            Lookup (H, M.Env, Head, Bound, Mok);
+            if Mok and then Is_Handle (Bound) then
+               Fetch (H, To_Handle (Bound), MC, Mok);
+               if Mok and then MC.Kind = Cell_Macro then
+                  Tr7.Macros.Expand
+                    (H, To_Handle (Bound), M.Ctl, Tmp, Mok);
+                  if not Mok then
+                     Fail (M, Error_Malformed);
+                     return;
+                  end if;
+                  M.Ctl := Tmp;
+                  M.Mode := Mode_Eval;
+                  return;
+               end if;
+            end if;
+         end;
+      end if;
+
       --  Ordinary application: evaluate the operator first.
       Cdr_Of (H, M.Ctl, Rest, Good);
       if not Good then
@@ -2685,7 +2756,7 @@ is
 
          when Cell_String | Cell_Vector | Cell_Bytevector | Cell_Closure
             | Cell_Primitive | Cell_Environment | Cell_Continuation
-            | Cell_Input_Port | Cell_Output_Port | Cell_Values =>
+            | Cell_Input_Port | Cell_Output_Port | Cell_Values | Cell_Macro =>
             M.Result := M.Ctl;
             M.Mode := Mode_Return;
 

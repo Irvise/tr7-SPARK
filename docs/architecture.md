@@ -173,6 +173,39 @@ necessarily treats them alike.  `(unquote)` with no argument is rejected as
 malformed, which is what R7RS says about an unquote that is not exactly one
 operand (`tests/qq.scm`, `tests/bad-qq.scm`).
 
+## Macros
+
+`define-syntax` builds a `Cell_Macro` transformer from a `syntax-rules` form:
+the cell's `Car` holds the literals list and its `Cdr` the rules, each a
+`(pattern . template)` pair.  A `define-syntax` is installed like any other
+definition; when the evaluator reaches an application whose head symbol is
+bound to a macro, `Tr7.Macros.Expand` matches the rule patterns against the
+form's tail and instantiates the winning template before evaluation continues.
+The expansion is evaluated in place, so a macro use is a tail position and a
+macro may expand to another macro use.
+
+The matcher and instantiator live in `Tr7.Macros`, separately from both the
+evaluator and the heap, because they are recursive over user data and are
+proved with a fuel measure (`Subprogram_Variant`) rather than cross-unit heap
+reasoning.  Bindings are two association lists -- scalar pattern variables and
+ellipsis variables whose values are lists -- so a template ellipsis can
+iterate the repeated variables in lockstep.
+
+This is a pragmatic R7RS subset, and the limits are deliberate:
+
+- literals, pattern variables, `_`, multiple rules and recursive macros work;
+- **one trailing ellipsis group per list level** is supported.  An ellipsis
+  followed by more pattern elements or a dotted tail does not match, and
+  nested ellipses are rejected by the matcher;
+- expansion is **non-hygienic**: an identifier introduced by a template is an
+  ordinary interned symbol.  Macros that introduce their own binders (the
+  usual `swap!` shape) work only when those names do not collide with the
+  caller's; full hygiene is future work.
+
+The macro cell is an ordinary heap object with no new marking rule: its
+literals and rules are reachable through `Car`/`Cdr`, which the collector
+already follows.
+
 ## Ports
 
 A port is a value over one of two cell kinds -- `Cell_Input_Port` and

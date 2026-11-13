@@ -34,7 +34,11 @@ is
       Cell_Output_Port,
       --  Several values in flight: Car holds the list of them (kind-agnostic
       --  marking covers it), and only `values` builds one.
-      Cell_Values);
+      Cell_Values,
+      --  A syntax-rules transformer: Car holds the literals list, Cdr the
+      --  rules (each a (pattern . template) pair).  Marking is kind-agnostic,
+      --  so the rules are kept alive by the ordinary Car/Cdr edges.
+      Cell_Macro);
 
    subtype Text_Buffer is String (1 .. Max_Text);
 

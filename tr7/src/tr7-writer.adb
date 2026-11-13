@@ -696,6 +696,9 @@ is
                   when Cell_Environment =>
                      Put (B, "#<environment>", Ok);
 
+                  when Cell_Macro =>
+                     Put_String (B, "#<macro>", Ok);
+
                   when Cell_Continuation =>
                      Put (B, "#<continuation>", Ok);
 

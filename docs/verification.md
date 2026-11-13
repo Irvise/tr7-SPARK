@@ -19,7 +19,9 @@ The `tr7` crate is the verified core:
 
 This is not a machine-checked proof of R7RS semantics.  In particular:
 
-- full re-entrant `call/cc`, `syntax-rules` and libraries are out of v1;
+- full re-entrant `call/cc` and libraries are out of v1;
+- `syntax-rules` is a pragmatic subset (non-hygienic, one trailing ellipsis
+  group per list level; no nested ellipses);
 - C ABI compatibility is function-level, not bit-level tagged-pointer
   compatibility.
 
@@ -72,7 +74,8 @@ Results, one entry per closed step of the plan:
 | M5 collector proof (worklist + read-only closure check) | 2,895 |
 | core procedure coverage (type predicates, selectors, conversions, mutation) | 2,982 |
 | `eval` + `interaction-environment` | 2,995 |
-| sequence conversions, numeric predicates, number/string I/O | **3,125** |
+| sequence conversions, numeric predicates, number/string I/O | 3,125 |
+| `syntax-rules` subset (literals, ellipsis, recursive macros) | **3,375** |
 
 Every row is 0 unproved, 0 justified, 0 warnings, with flow, initialization
 and non-aliasing fully proved and a warning-free build.
@@ -92,7 +95,7 @@ instead of asking the prover to reason about a wide multiply.
 
 ## Gold hardening audit (M5)
 
-At the accepted state (2026-11-13, 3,125 checks):
+At the accepted state (2026-11-13, 3,375 checks):
 
 - every unit under `tr7/src` is `SPARK_Mode => On`; `tr7i` and `tr7_c` are the
   documented `SPARK_Mode => Off` trusted boundary;
@@ -108,13 +111,13 @@ Summary by obligation category from `gnatprove.out`:
 
 | category | checks | proved |
 | --- | --- | --- |
-| Initialization | 1,035 | 1,035 |
+| Initialization | 1,130 | 1,130 |
 | Non-Aliasing | 12 | 12 |
-| Run-time Checks | 669 | 669 |
-| Assertions | 338 | 338 |
-| Functional Contracts | 978 | 978 |
-| Termination | 93 | 93 (65 by flow analysis, 28 by the provers) |
-| **Total** | **3,125** | **3,125** |
+| Run-time Checks | 688 | 688 |
+| Assertions | 354 | 354 |
+| Functional Contracts | 1,081 | 1,081 |
+| Termination | 110 | 110 (68 by flow analysis, 42 by the provers) |
+| **Total** | **3,375** | **3,375** |
 
 ### Contract review
 

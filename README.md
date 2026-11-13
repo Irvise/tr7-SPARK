@@ -25,9 +25,10 @@ collects on a fixed cadence; the `gc` suite runs both ways and asserts that
 garbage was actually reclaimed.  `free-cells` is a small extension primitive
 used by that suite.
 
-Supported special forms: `quote`, `if`, `lambda`, `define`, `set!`, `begin`,
-`let`, `let*`, `letrec`, `and`, `or`, `cond`, `when`, `unless`, `case`
-(`tests/forms.scm`, `tests/cond.scm`, `tests/case.scm`).
+Supported special forms: `quote`, `if`, `lambda`, `define`, `define-syntax`,
+`syntax-rules`, `set!`, `begin`, `let`, `let*`, `letrec`, `and`, `or`,
+`cond`, `when`, `unless`, `case` (`tests/forms.scm`, `tests/cond.scm`,
+`tests/case.scm`, `tests/macro.scm`).
 
 Strings have `string?`, `string-length`, `string-ref`, `substring`,
 `string-append`, `string=?`, `#\x` reader escapes and wide-character
@@ -107,7 +108,13 @@ linked and run by `test.sh` as `abi (C demo)`.  Every signature carries
 Pre/Post contracts that `-gnata` checks at run time; the bodies are the
 trusted boundary.
 
-Not yet present: real file ports and `syntax-rules`.
+`syntax-rules` macros are in (`tests/macro.scm`): literals, pattern
+variables, `_`, one trailing ellipsis group per list level, multiple rules
+and recursive macros.  Expansion is non-hygienic, so an introduced binding can
+capture a caller's identifier; nested ellipses and an ellipsis followed by a
+dotted tail are not supported.
+
+Not yet present: real file ports and full hygienic `syntax-rules`.
 
 ## Build
 
