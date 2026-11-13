@@ -21,6 +21,15 @@ is
    --  Max_Cells entries are enough for any object graph in the arena.
    type Mark_Array is array (Valid_Cell_Index) of Valid_Cell_Index;
 
+   --  The roots of one collection, as cells: the caller (Collect_Garbage)
+   --  resolves every root value to its live cell and hands the list over.
+   --  The bound is the worst case without deduplication -- six frame slots
+   --  per stack frame plus the direct roots -- and the caller can never
+   --  reach it, because there are at most Max_Cells distinct cells.
+   Max_Roots : constant := 6 * Max_Cells + 8;
+   subtype Root_Count is Natural range 0 .. Max_Roots;
+   type Root_Array is array (1 .. Max_Roots) of Valid_Cell_Index;
+
    type Heap_Type is record
       Cells       : Cell_Array;
       Free_Head   : Cell_Index := 0;
@@ -306,34 +315,123 @@ is
        Pre  => H.Ready,
        Post => H.Ready;
 
-   --  Collector.
-   --
-   --  Usage: root everything live (Mark_Root), then call Collect.  Registering
-   --  a root never allocates, so nothing can be lost between the two calls.
-   --  Marking cannot fail silently: a full mark stack sets Mark_Failed, and
-   --  Collect then abandons the cycle without sweeping -- which can only leave
-   --  garbage in place, never free a live cell.
-   --  Rooting only writes mark epochs: it never allocates, never frees, never
-   --  touches the free list and never advances the cycle, which is what lets
-   --  Collect reason about Free_Count and Epoch across the whole drain phase.
-   procedure Mark_Root (H : in out Heap_Type; V : Value)
+   --  The cell a value points at, or 0 when the handle does not resolve:
+   --  out of range, wrong generation, or already free.  Mark_Root-equivalent
+   --  logic in one place, so the collector's closure predicate and its
+   --  marking cannot disagree about what a child is.
+   --  No H.Ready precondition: this is a pure read of the array (whose
+   --  default is a free cell), and the reachability predicates call it
+   --  from contexts that carry Ready anyway.
+   function Live_Cell (H : Heap_Type; Hd : Handle) return Cell_Index
      with
-       Pre  => H.Ready,
-       Post => H.Ready
-         and then H.Free_Count = H.Free_Count'Old
-         and then H.Epoch = H.Epoch'Old;
+       Inline           => True,
+       Post => (Live_Cell'Result = 0
+                or else Live_Cell'Result in Valid_Cell_Index)
+         and then (if Live_Cell'Result /= 0
+                   then Live_Cell'Result = Hd.Index
+                     and then H.Cells (Live_Cell'Result).Kind /= Cell_Free
+                     and then H.Cells (Live_Cell'Result).Generation =
+                       Hd.Generation);
 
-   --  Collect has no success flag on purpose: when marking cannot complete the
-   --  cycle is abandoned without sweeping, so the only consequence is that less
-   --  garbage is reclaimed.  Every path retires the cycle's marks by advancing
-   --  Epoch, which is why the postconditions below are all scalar.
-   procedure Collect (H : in out Heap_Type)
+   function Live_Cell (H : Heap_Type; V : Value) return Cell_Index
+     is (if Is_Handle (V) then Live_Cell (H, To_Handle (V)) else 0);
+
+   --  A cell is marked when its epoch is the current cycle's.  Cell 0 is
+   --  the nil marker and has no array slot, so it is never marked -- the
+   --  guard makes the predicate total, which every caller (lemma included)
+   --  relies on.
+   function Is_Marked (H : Heap_Type; J : Cell_Index) return Boolean is
+     (J /= 0 and then H.Cells (J).Mark_Epoch = H.Epoch);
+
+   function On_Stack (H : Heap_Type; J : Cell_Index) return Boolean is
+     (J /= 0 and then H.Cells (J).Queued = H.Epoch);
+
+   --  One child is rooted when the value is dead (nothing to root) or its
+   --  cell is marked.  A single atom: stated once here so neither the
+   --  closure nor the drain's invariants pay for two Live_Cell expansions
+   --  per child.
+   function Child_Marked (H : Heap_Type; V : Value) return Boolean is
+     (Live_Cell (H, V) = 0 or else Is_Marked (H, Live_Cell (H, V)));
+
+   --  One-step closure of the marked set: every marked cell is either still
+   --  on the worklist or has all of its children marked -- exactly the
+   --  children the drain roots: Car, Cdr, and Env for closures and
+   --  environments.  The reachability lemma takes this as its hypothesis.
+   function Closure (H : Heap_Type) return Boolean is
+     (for all J in Valid_Cell_Index =>
+        (if Is_Marked (H, J)
+         then On_Stack (H, J)
+           or else (Child_Marked (H, H.Cells (J).Car)
+                    and then Child_Marked (H, H.Cells (J).Cdr)
+                    and then (if H.Cells (J).Kind = Cell_Closure
+                                or else H.Cells (J).Kind = Cell_Environment
+                              then Child_Marked
+                                (H, From_Handle (H.Cells (J).Env))
+                              else True))));
+
+   --  The drain's own invariant, in processed-cells form: a marked cell
+   --  that is no longer on the worklist has all of its children marked.
+   --  Logically Closure with the worklist empty, but split per child:
+   --  one invariant per child is one quantifier and one case split per
+   --  preservation proof, where the conjunction made the prover chase
+   --  every child of every cell at once and time out.  At drain exit
+   --  (stack empty) the three coincide with Closure, which is what
+   --  Collect's postcondition states.
+   function Drained_Car (H : Heap_Type) return Boolean is
+     (for all J in Valid_Cell_Index =>
+        (if Is_Marked (H, J) and then not On_Stack (H, J)
+         then Child_Marked (H, H.Cells (J).Car)));
+
+   function Drained_Cdr (H : Heap_Type) return Boolean is
+     (for all J in Valid_Cell_Index =>
+        (if Is_Marked (H, J) and then not On_Stack (H, J)
+         then Child_Marked (H, H.Cells (J).Cdr)));
+
+   function Drained_Env (H : Heap_Type) return Boolean is
+     (for all J in Valid_Cell_Index =>
+        (if Is_Marked (H, J) and then not On_Stack (H, J)
+           and then (H.Cells (J).Kind = Cell_Closure
+                     or else H.Cells (J).Kind = Cell_Environment)
+         then Child_Marked (H, From_Handle (H.Cells (J).Env))));
+
+   function Drained (H : Heap_Type) return Boolean is
+     (Drained_Car (H) and then Drained_Cdr (H) and then Drained_Env (H));
+
+   function Roots_Marked (H : Heap_Type; Roots : Root_Array;
+                          Count : Root_Count) return Boolean is
+     (for all K in 1 .. Count => Is_Marked (H, Roots (K)));
+
+   --  Collector: retire the previous cycle's marks by jumping Epoch past
+   --  every mark in the arena (this cycle therefore starts clean, provably
+   --  inside this procedure -- no cross-call reasoning about epochs), root
+   --  the cells in Roots, drain the mark stack, and -- when marking
+   --  completed -- leave exactly the closure facts the sweep needs.
+   --  The sweep itself lives in Tr7.Reach, so reachability mathematics
+   --  never enters this unit's proof obligations.
+   --
+   --  Marking cannot fail silently: a full mark stack sets Mark_Failed, a
+   --  drain that runs out of rounds sets it too, and Collect then abandons
+   --  the cycle without sweeping -- which can only leave garbage in place,
+   --  never free a live cell.  The caller skips the sweep when
+   --  Mark_Failed is set on return.
+   procedure Collect
+     (H     : in out Heap_Type;
+      Roots : Root_Array;
+      Count : Root_Count)
      with
-       Pre  => H.Ready,
+       Pre  => H.Ready
+         and then (for all K in 1 .. Count =>
+                     H.Cells (Roots (K)).Kind /= Cell_Free),
        Post => H.Ready
          and then H.Mark_Top = 0
-         and then not H.Mark_Failed
-         and then H.Free_Count >= H.Free_Count'Old
-         and then H.Epoch >= H.Epoch'Old;
+         and then H.Free_Count = H.Free_Count'Old
+         and then (if not H.Mark_Failed
+                   then Closure (H)
+                     and then Roots_Marked (H, Roots, Count)
+                     and then (for all J in Valid_Cell_Index =>
+                                 not On_Stack (H, J))
+                     and then (for all J in Valid_Cell_Index =>
+                                 (if Is_Marked (H, J)
+                                  then H.Cells (J).Kind /= Cell_Free)));
 
 end Tr7.Heap;

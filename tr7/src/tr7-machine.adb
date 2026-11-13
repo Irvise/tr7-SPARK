@@ -2,6 +2,7 @@ with Tr7.Cells; use Tr7.Cells;
 with Tr7.Env; use Tr7.Env;
 with Tr7.Pairs; use Tr7.Pairs;
 with Tr7.Primitives; use Tr7.Primitives;
+with Tr7.Reach;
 
 package body Tr7.Machine with
    SPARK_Mode => On
@@ -3323,37 +3324,90 @@ is
       Env : Handle;
       M   : Machine)
    is
-      Msg : Value;
+      Msg   : Value;
+      Roots : Root_Array := (others => Valid_Cell_Index'First);
+      Count : Root_Count := 0;
+
+      --  Resolve one root value to its live cell and append it.  Duplicates
+      --  are fine -- the collector's rooting loop skips a cell it has
+      --  already marked -- but the bound is never reached: there are at
+      --  most Max_Cells distinct cells, and the array is sized for the
+      --  deduplicated worst case of the raw root slots.
+      procedure Add (V : Value) is
+         Idx : Cell_Index;
+      begin
+         Idx := Live_Cell (H, V);
+         if Idx /= 0 and then Count < Max_Roots then
+            Count := Count + 1;
+            Roots (Count) := Valid_Cell_Index (Idx);
+         end if;
+      end Add;
+
+      --  One root value already resolved: either dead (nothing to keep) or
+      --  present in the list built so far.  Proof-only -- it lives in loop
+      --  invariants, which the policy file compiles away.
+      function In_Roots (V : Value) return Boolean is
+        (Live_Cell (H, V) = 0
+         or else (for some M in 1 .. Count => Roots (M) = Live_Cell (H, V)));
+
    begin
       --  The CEK state is a complete root set between steps: control, the
       --  value being delivered, the current environment and every frame on
-      --  the continuation stack.
-      Mark_Root (H, M.Ctl);
-      Mark_Root (H, M.Result);
-      --  A pending user error's text.  It is only set on the step that halts,
-      --  so nothing can collect it in between -- this is defence in depth --
-      --  and it is copied to a local first because a component of H cannot
-      --  travel with H.
+      --  the continuation stack.  Nothing is marked here -- Collect marks
+      --  the cells, after it has jumped the epoch to a clean cycle.
+      Add (M.Ctl);
+      Add (M.Result);
+      --  A pending user error's text.  It is only set on the step that
+      --  halts, so nothing can collect it in between -- this is defence in
+      --  depth -- and it is copied to a local first because a component of
+      --  H cannot travel with H.
       Msg := H.Error_Msg;
-      Mark_Root (H, Msg);
-      Mark_Root (H, From_Handle (Env));
-      Mark_Root (H, From_Handle (M.Env));
+      Add (Msg);
+      Add (From_Handle (Env));
+      Add (From_Handle (M.Env));
 
       for I in 1 .. M.Top loop
          pragma Loop_Invariant (H.Ready);
          pragma Loop_Invariant (I <= M.Top);
-         --  Rooting never touches the free list, so the free cells counted on
-         --  entry are still there for Collect to report on.
+         --  Rooting never touches the free list, so the free cells counted
+         --  on entry are still there for Collect to report on.
          pragma Loop_Invariant (H.Free_Count = H.Free_Count'Loop_Entry);
-         Mark_Root (H, M.Stack (I).Expr);
-         Mark_Root (H, M.Stack (I).Alt);
-         Mark_Root (H, M.Stack (I).Func);
-         Mark_Root (H, M.Stack (I).Args);
-         Mark_Root (H, M.Stack (I).Sym);
-         Mark_Root (H, From_Handle (M.Stack (I).Env));
+         --  The list grows by at most six cells per frame plus the five
+         --  direct roots, so the append guard can never drop a root.
+         pragma Loop_Invariant (Count <= 6 * I + 5);
+         --  Every root resolved so far is in the list: the reachability
+         --  goal downstream is stated over this list, so completeness is
+         --  what makes it a statement about the true roots.
+         pragma Loop_Invariant
+           (In_Roots (M.Ctl) and then In_Roots (M.Result)
+            and then In_Roots (Msg)
+            and then In_Roots (From_Handle (Env))
+            and then In_Roots (From_Handle (M.Env)));
+         pragma Loop_Invariant
+           (for all K in 1 .. I - 1 =>
+              (In_Roots (M.Stack (K).Expr)
+               and then In_Roots (M.Stack (K).Alt)
+               and then In_Roots (M.Stack (K).Func)
+               and then In_Roots (M.Stack (K).Args)
+               and then In_Roots (M.Stack (K).Sym)
+               and then In_Roots (From_Handle (M.Stack (K).Env))));
+         --  A list cell was live when appended and nothing between here
+         --  and Collect frees, so Collect's precondition holds.
+         pragma Loop_Invariant
+           (for all K in 1 .. Count =>
+              H.Cells (Roots (K)).Kind /= Cell_Free);
+         Add (M.Stack (I).Expr);
+         Add (M.Stack (I).Alt);
+         Add (M.Stack (I).Func);
+         Add (M.Stack (I).Args);
+         Add (M.Stack (I).Sym);
+         Add (From_Handle (M.Stack (I).Env));
       end loop;
 
-      Collect (H);
+      Collect (H, Roots, Count);
+      if not H.Mark_Failed then
+         Reach.Sweep (H, Roots, Count);
+      end if;
    end Collect_Garbage;
 
    procedure Evaluate

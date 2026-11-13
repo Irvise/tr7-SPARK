@@ -25,9 +25,16 @@ project Tr7 is
    package Compiler is
       case Checks is
          when "on" =>
+            --  Loop invariants and Loop_Entry copies are proof-only: the
+            --  policy file makes them compile to nothing at run time while
+            --  GNATprove still generates and discharges every obligation
+            --  (validated: gnatprove reports them even under Ignore).
+            --  Pre/post/type predicates stay checked under -gnata, which is
+            --  what the suites are meant to trip.
             for Default_Switches ("Ada") use
               Tr7_Config.Ada_Compiler_Switches &
-              ("-gnat2012", "-gnata", "-gnatwa");
+              ("-gnat2012", "-gnata", "-gnatwa",
+               "-gnatec=" & Project'Project_Dir & "gnat.adc");
          when others =>
             for Default_Switches ("Ada") use
               Tr7_Config.Ada_Compiler_Switches &
