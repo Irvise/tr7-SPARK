@@ -398,9 +398,15 @@ is
       Rest    : Value;
       F       : Frame;
       Target   : Natural;
+      Old_Top  : Natural;
       Wind     : Value;
       New_Wind : Value;
       After_V  : Value;
+      Befores  : Value;
+      Rev      : Value;
+      Cur      : Value;
+      Tmp      : Value;
+      Next     : Value;
    begin
       if not Is_Handle (Func) then
          Fail (M, Error_Not_A_Procedure);
@@ -430,14 +436,15 @@ is
                return;
             end if;
             Target := C.Cont_Depth;
+            Old_Top := M.Top;
 
             --  Every wind the escape discards has an after to run.  Frames
             --  above the captured depth are the ones being crossed; the
             --  after procedure was evaluated when the wind form ran and
             --  rides in the frame's Expr.
             Wind := Nil_Value;
-            for J in Target + 1 .. M.Top loop
-               pragma Loop_Invariant (Target < J and then J <= M.Top);
+            for J in Target + 1 .. Old_Top loop
+               pragma Loop_Invariant (Target < J and then J <= Old_Top);
                pragma Loop_Invariant (H.Ready);
                if M.Stack (J).Kind = K_Wind then
                   Cons (H, M.Stack (J).Expr, Wind, New_Wind, Good);
@@ -455,20 +462,73 @@ is
                return;
             end if;
 
-            if Is_Nil (Wind) then
+            --  Re-entering winds that were not active in the current stack
+            --  runs their before procedures, outermost first.
+            Befores := Nil_Value;
+            for J in Old_Top + 1 .. Target loop
+               pragma Loop_Invariant (Old_Top < J and then J <= Target);
+               pragma Loop_Invariant (H.Ready);
+               if M.Stack (J).Kind = K_Wind then
+                  Cons (H, M.Stack (J).Sym, Befores, Tmp, Good);
+                  if not Good then
+                     Fail (M, Error_Heap_Full);
+                     return;
+                  end if;
+                  Befores := Tmp;
+               end if;
+            end loop;
+            Reverse_List (H, Befores, Rev, Good);
+            if not Good then
+               Fail (M, Error_Heap_Full);
+               return;
+            end if;
+
+            --  Combine: afters first (inner to outer), then befores.
+            if not Is_Nil (Wind) and then not Is_Nil (Rev) then
+               Reverse_List (H, Wind, Tmp, Good);
+               if not Good then
+                  Fail (M, Error_Heap_Full);
+                  return;
+               end if;
+               Cur := Tmp;
+               while not Is_Nil (Cur) loop
+                  pragma Loop_Invariant (H.Ready);
+                  Car_Of (H, Cur, After_V, Good);
+                  if not Good then
+                     Fail (M, Error_Malformed);
+                     return;
+                  end if;
+                  Cons (H, After_V, Rev, Tmp, Good);
+                  if not Good then
+                     Fail (M, Error_Heap_Full);
+                     return;
+                  end if;
+                  Rev := Tmp;
+                  Cdr_Of (H, Cur, Next, Good);
+                  if not Good then
+                     Fail (M, Error_Malformed);
+                     return;
+                  end if;
+                  Cur := Next;
+               end loop;
+            elsif not Is_Nil (Wind) then
+               Rev := Wind;
+            end if;
+
+            if Is_Nil (Rev) then
                return;
             end if;
 
             F := (Kind => K_Unwind,
                   Func => First,
-                  Args => Wind,
+                  Args => Rev,
                   others => <>);
             Push (M, F, Good);
             if not Good then
                Fail (M, Error_Step_Limit);
                return;
             end if;
-            Car_Of (H, Wind, After_V, Good);
+            Car_Of (H, Rev, After_V, Good);
             if not Good then
                Fail (M, Error_Malformed);
                return;
@@ -3877,6 +3937,7 @@ is
             --  value just arrived): call `before` first, as the reference
             --  implementation does, and hold the other two for their turns.
             First := F.Func;
+            F.Sym := First;          --  remember before for a re-entry
             F.Expr := M.Result;
             F.Func := F.Alt;
             F.Kind := K_DW_Call;
@@ -4324,7 +4385,7 @@ is
       --  invariants, which the policy file compiles away.
       function In_Roots (V : Value) return Boolean is
         (Live_Cell (H, V) = 0
-         or else (for some M in 1 .. Count => Roots (M) = Live_Cell (H, V)));
+         or else (for some K in 1 .. Count => Roots (K) = Live_Cell (H, V)));
 
    begin
       --  The CEK state is a complete root set between steps: control, the

@@ -65,11 +65,11 @@ is evaluated -- so `call/cc` in tail position is a proper tail call, and
 `tests/callcc-multi.scm` exercises re-entry.
 
 Invoking a continuation restores the captured frames and sets `Result`/
-`Mode_Return`; if the current stack is deeper, every crossed `K_Wind` frame's
-after procedure runs first, in innermost-first order, through the existing
-`K_Unwind` frame.  Re-entering a wind from a shallower stack restores its
-frames but does not re-run `before`: that is the one wind interaction left
-for a later continuation/wind model.
+`Mode_Return`.  If the current stack is deeper, every crossed `K_Wind` frame's
+after procedure runs first, innermost-first; if it is shallower, the before
+procedures of the winds being entered run outermost-first.  Both lists ride a
+`K_Unwind` frame, with the afters before the befores; `tests/wind-reentry.scm`
+checks the round trip.
 
 `dynamic-wind before thunk after` is a procedure whose three expressions are
 evaluated once, left to right -- R7RS leaves operand order unspecified

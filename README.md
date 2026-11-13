@@ -102,7 +102,8 @@ one value stays itself, none becomes the empty wrapper.  `let-values` and
 continuation is a persistent heap snapshot of the frames, so it can be
 invoked more than once, and call/cc in tail position adds no frame.  Escaping
 across `dynamic-wind` runs the crossed `after` procedures innermost first;
-re-entering a wind does not re-run its `before` yet.
+re-entering a wind runs the `before` procedures outermost first
+(`tests/wind-reentry.scm`).
 
 `dynamic-wind` is in (`tests/wind.scm`): `before`, `thunk` and `after`
 are called around the extent, the form returns the thunk's value, and an
@@ -127,9 +128,7 @@ so R7RS scripts that open with `(import (scheme base))` run.
 
 `+inf.0`, `-inf.0` and `+nan.0` are both written and read (`tests/core.scm`);
 the constants come from the standard Ada elementary-function library in the
-small trusted `Tr7.IEEE` boundary.  Known limits: re-entering a
-`dynamic-wind` extent through a continuation restores its frames but does not
-re-run `before`.  Not yet present: real file ports, `load`, a real library
+small trusted `Tr7.IEEE` boundary.  Not yet present: real file ports, `load`, a real library
 system and full hygienic `syntax-rules`.
 
 ## Build

@@ -82,7 +82,8 @@ Results, one entry per closed step of the plan:
 | review follow-up: arithmetic, cycle bounds, reader/writer, eval forms | 3,963 |
 | field-level heap accessors for pairs and environments | 4,008 |
 | character names, lone-dot rejection, C ABI pointer validation | 4,014 |
-| re-entrant call/cc (heap continuation snapshots) + IEEE special values | **4,079** |
+| re-entrant call/cc (heap continuation snapshots) + IEEE special values | 4,079 |
+| wind re-entry through continuations | **4,102** |
 
 Every row is 0 unproved, 0 justified, 0 warnings, with flow, initialization
 and non-aliasing fully proved and a warning-free build.
@@ -102,7 +103,7 @@ instead of asking the prover to reason about a wide multiply.
 
 ## Gold hardening audit (M5)
 
-At the accepted state (2026-11-13, 4,079 checks):
+At the accepted state (2026-11-13, 4,102 checks):
 
 - every unit under `tr7/src` is `SPARK_Mode => On`; `tr7i` and `tr7_c` are the
   documented `SPARK_Mode => Off` trusted boundary.  The three constant
@@ -121,13 +122,13 @@ Summary by obligation category from `gnatprove.out`:
 
 | category | checks | proved |
 | --- | --- | --- |
-| Initialization | 1,357 | 1,357 |
+| Initialization | 1,360 | 1,360 |
 | Non-Aliasing | 12 | 12 |
-| Run-time Checks | 900 | 900 |
-| Assertions | 406 | 406 |
-| Functional Contracts | 1,273 | 1,273 |
+| Run-time Checks | 910 | 910 |
+| Assertions | 409 | 409 |
+| Functional Contracts | 1,292 | 1,292 |
 | Termination | 131 | 131 (70 by flow analysis, 61 by the provers) |
-| **Total** | **4,079** | **4,079** |
+| **Total** | **4,102** | **4,102** |
 
 ### Contract review
 
