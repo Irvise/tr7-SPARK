@@ -117,3 +117,10 @@
 #| block comment |#
 (show #| inline |# 42)
 (show #;(ignored) 7)
+(show #\alarm)
+(show #\backspace)
+(show #\delete)
+(show #\escape)
+(show #\null)
+(show #\return)
+(show (read (open-input-string "#\\alarm")))

@@ -666,6 +666,18 @@ is
                   Put (B, "newline", Ok);
                elsif V.C = Unsigned_32 (Character'Pos (HT)) then
                   Put (B, "tab", Ok);
+               elsif V.C = 0 then
+                  Put (B, "null", Ok);
+               elsif V.C = 7 then
+                  Put (B, "alarm", Ok);
+               elsif V.C = 8 then
+                  Put (B, "backspace", Ok);
+               elsif V.C = 13 then
+                  Put (B, "return", Ok);
+               elsif V.C = 27 then
+                  Put (B, "escape", Ok);
+               elsif V.C = 127 then
+                  Put (B, "delete", Ok);
                else
                   if V.C <= 255 then
                      Put (B, Character'Val (Integer (V.C)), Ok);

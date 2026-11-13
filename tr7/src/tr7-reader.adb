@@ -1002,6 +1002,84 @@ is
             end if;
 
             if Len = 5
+              and then To_Lower (Buf (1)) = 'a'
+              and then To_Lower (Buf (2)) = 'l'
+              and then To_Lower (Buf (3)) = 'a'
+              and then To_Lower (Buf (4)) = 'r'
+              and then To_Lower (Buf (5)) = 'm'
+            then
+               Result := From_Character (7);
+               Status := Read_Ok;
+               return;
+            end if;
+
+            if Len = 9
+              and then To_Lower (Buf (1)) = 'b'
+              and then To_Lower (Buf (2)) = 'a'
+              and then To_Lower (Buf (3)) = 'c'
+              and then To_Lower (Buf (4)) = 'k'
+              and then To_Lower (Buf (5)) = 's'
+              and then To_Lower (Buf (6)) = 'p'
+              and then To_Lower (Buf (7)) = 'a'
+              and then To_Lower (Buf (8)) = 'c'
+              and then To_Lower (Buf (9)) = 'e'
+            then
+               Result := From_Character (8);
+               Status := Read_Ok;
+               return;
+            end if;
+
+            if Len = 6
+              and then To_Lower (Buf (1)) = 'd'
+              and then To_Lower (Buf (2)) = 'e'
+              and then To_Lower (Buf (3)) = 'l'
+              and then To_Lower (Buf (4)) = 'e'
+              and then To_Lower (Buf (5)) = 't'
+              and then To_Lower (Buf (6)) = 'e'
+            then
+               Result := From_Character (127);
+               Status := Read_Ok;
+               return;
+            end if;
+
+            if Len = 6
+              and then To_Lower (Buf (1)) = 'e'
+              and then To_Lower (Buf (2)) = 's'
+              and then To_Lower (Buf (3)) = 'c'
+              and then To_Lower (Buf (4)) = 'a'
+              and then To_Lower (Buf (5)) = 'p'
+              and then To_Lower (Buf (6)) = 'e'
+            then
+               Result := From_Character (27);
+               Status := Read_Ok;
+               return;
+            end if;
+
+            if Len = 4
+              and then To_Lower (Buf (1)) = 'n'
+              and then To_Lower (Buf (2)) = 'u'
+              and then To_Lower (Buf (3)) = 'l'
+              and then To_Lower (Buf (4)) = 'l'
+            then
+               Result := From_Character (0);
+               Status := Read_Ok;
+               return;
+            end if;
+
+            if Len = 6
+              and then To_Lower (Buf (1)) = 'r'
+              and then To_Lower (Buf (2)) = 'e'
+              and then To_Lower (Buf (3)) = 't'
+              and then To_Lower (Buf (4)) = 'u'
+              and then To_Lower (Buf (5)) = 'r'
+              and then To_Lower (Buf (6)) = 'n'
+            then
+               Result := From_Character (Character'Pos (CR));
+               Status := Read_Ok;
+               return;
+            end if;
+
+            if Len = 5
               and then To_Lower (Buf (1)) = 's'
               and then To_Lower (Buf (2)) = 'p'
               and then To_Lower (Buf (3)) = 'a'
@@ -1057,6 +1135,10 @@ is
       end loop;
 
       if Len = 0 then
+         return;
+      end if;
+      if Len = 1 and then Buf (1) = '.' then
+         --  A lone dot is the dotted-pair marker, not a symbol.
          return;
       end if;
 
