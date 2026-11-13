@@ -19,7 +19,6 @@ The `tr7` crate is the verified core:
 
 This is not a machine-checked proof of R7RS semantics.  In particular:
 
-- mark-sweep reachability/liveness is a later proof goal;
 - full re-entrant `call/cc`, `syntax-rules`, libraries and `eval` are out of v1;
 - C ABI compatibility is function-level, not bit-level tagged-pointer
   compatibility.
@@ -31,7 +30,7 @@ TIMEOUT=5 ./scripts/prove.sh
 ```
 
 The script clears `obj/gnatprove`, runs GNATprove 16.1 at level 4 with
-`--checks-as-errors` and `-j4`, then fails on *either* a non-zero exit code or
+`--checks-as-errors` and `-j6`, then fails on *either* a non-zero exit code or
 a log containing `medium:`, `high:`, `unproved` or `failed`.  Exit code 0
 alone is not trusted.
 
@@ -60,7 +59,9 @@ Results, one entry per closed step of the plan:
 | `error` -- Scheme's raiser with a text (M3 begins) | 2,620 |
 | `values` / `call-with-values` | 2,649 |
 | restricted `call/cc` | 2,666 |
-| `dynamic-wind` -- M3 complete | **2,692** |
+| `dynamic-wind` -- M3 complete | 2,692 |
+| M4 C ABI (six entry points, 177 generated stubs) | 2,692 |
+| M5 collector proof (worklist + read-only closure check) | **2,895** |
 
 Every row is 0 unproved, 0 justified, 0 warnings, with flow, initialization
 and non-aliasing fully proved and a warning-free build.

@@ -504,30 +504,38 @@ is
       Max_Mark    : Unsigned_64 := 0;
       Next_Idx    : Integer range 1 .. Max_Cells + 1 := 1;
       Idx         : Valid_Cell_Index;
-      C           : Cell;
+      Car_V       : Value;
+      Cdr_V       : Value;
+      Env_H       : Handle;
+      Verified    : Boolean;
 
-      --  Root one child of the cell being drained, exactly as the old
-      --  Mark_Root did.  Nested on purpose: GNATprove inlines local
-      --  subprograms for proof, and the inlined body is what lets the
-      --  drain's closure invariant see the mark-and-push directly -- a
-      --  contract could not, without an unaffordable array-frame clause
-      --  that would keep the other invariants from proving.
-      procedure Root_Child (V : Value) is
-         Child : Cell_Index;
+      --  Mark one child of the cell being drained and push it on the
+      --  worklist.  The liveness test is written out rather than through
+      --  Live_Cell so the marked index and the closure predicate's index
+      --  are the same expression.  Nested on purpose: GNATprove inlines
+      --  local subprograms for proof, and the inlined body is what lets the
+      --  worklist invariant see the mark-and-push directly.
+      procedure Mark_Child (V : Value) is
       begin
-         Child := Live_Cell (H, V);
-         if Child /= 0 and then not Is_Marked (H, Child) then
+         if Is_Handle (V)
+           and then To_Handle (V).Index in Valid_Cell_Index
+           and then H.Cells (To_Handle (V).Index).Kind /= Cell_Free
+           and then H.Cells (To_Handle (V).Index).Generation =
+             To_Handle (V).Generation
+           and then H.Cells (To_Handle (V).Index).Mark_Epoch /= H.Epoch
+         then
+            H.Cells (To_Handle (V).Index).Mark_Epoch := H.Epoch;
             if H.Mark_Top = Max_Cells then
+               --  Unreachable while each cell is pushed at most once, but
+               --  keeping the guard makes the failure explicit.
                H.Mark_Failed := True;
             else
-               H.Cells (Child).Mark_Epoch := H.Epoch;
-               H.Cells (Child).Queued := H.Epoch;
                H.Mark_Top := H.Mark_Top + 1;
                H.Mark_Stack (Valid_Cell_Index (H.Mark_Top)) :=
-                 Valid_Cell_Index (Child);
+                 Valid_Cell_Index (To_Handle (V).Index);
             end if;
          end if;
-      end Root_Child;
+      end Mark_Child;
 
    begin
       H.Mark_Failed := False;
@@ -566,81 +574,81 @@ is
       end if;
       H.Epoch := Max_Mark + 1;
 
-      --  Root the caller's cells.  The stack starts empty (just reset), so
-      --  the worklist invariants below begin from nothing on it.
+      --  Mark the caller's cells and seed the worklist.  The root
+      --  precondition gives Kind /= Cell_Free, and this loop only raises a
+      --  Mark_Epoch to Epoch, so "every marked cell is live" starts here
+      --  and is preserved by Mark_Child, which only marks live children.
       for R in 1 .. Count loop
          pragma Loop_Invariant (H.Ready);
          pragma Loop_Invariant (H.Free_Count = Free_Before);
          pragma Loop_Invariant (H.Mark_Top <= Max_Cells);
          pragma Loop_Invariant
-           (for all J in Valid_Cell_Index =>
-              (if Is_Marked (H, J) then On_Stack (H, J)));
+           (for all K in 1 .. H.Mark_Top =>
+              Is_Marked (H, H.Mark_Stack (Valid_Cell_Index (K))));
          pragma Loop_Invariant
-           (for all K in 1 .. H.Mark_Top => Is_Marked (H, H.Mark_Stack (Valid_Cell_Index (K))));
+           (for all K in 1 .. R - 1 => Is_Marked (H, Roots (K)));
          pragma Loop_Invariant
            (for all J in Valid_Cell_Index =>
               (if Is_Marked (H, J) then H.Cells (J).Kind /= Cell_Free));
-         pragma Loop_Invariant
-           (for all J in Valid_Cell_Index =>
-              (if H.Cells (J).Queued /= 0
-               then H.Cells (J).Queued = H.Cells (J).Mark_Epoch));
          exit when H.Mark_Failed;
          if not Is_Marked (H, Roots (R)) then
+            H.Cells (Roots (R)).Mark_Epoch := H.Epoch;
             if H.Mark_Top = Max_Cells then
                H.Mark_Failed := True;
             else
-               H.Cells (Roots (R)).Mark_Epoch := H.Epoch;
-               H.Cells (Roots (R)).Queued := H.Epoch;
                H.Mark_Top := H.Mark_Top + 1;
                H.Mark_Stack (Valid_Cell_Index (H.Mark_Top)) := Roots (R);
             end if;
          end if;
       end loop;
 
-      --  Drain the mark stack.  Each round visits one cell and roots its
-      --  children; a cell is pushed at most once (marked on the way in).
-      for K in 1 .. Max_Cells loop
+      if H.Mark_Failed then
+         H.Mark_Top := 0;
+         return;
+      end if;
+
+      --  Drain the worklist.  The invariants deliberately say nothing about
+      --  closure: that is checked afterwards in a read-only scan, where no
+      --  array update is interleaved with the quantified fact and the
+      --  preservation proofs are trivial.  Here it is enough that every
+      --  entry on the stack is marked, that marked cells stay live, and
+      --  that the roots stay marked.
+      --  Max_Cells + 1 rounds: each round pops one cell, and in the worst
+      --  case the final cell is marked and pushed by the last pop, so one
+      --  extra round is needed to drain it.  Total pushes are bounded by
+      --  Max_Cells because a cell is pushed only when it becomes marked.
+      for K in 1 .. Max_Cells + 1 loop
          pragma Loop_Invariant (H.Ready);
          pragma Loop_Invariant (H.Mark_Top <= Max_Cells);
          pragma Loop_Invariant (H.Free_Count = Free_Before);
-         --  One-step closure of the marked set: every marked cell is still
-         --  on the worklist or has all of its children marked.  Root_Child
-         --  is nested precisely so this preservation proof sees its body.
-         pragma Loop_Invariant (H.Mark_Failed or else Drained_Car (H));
-         pragma Loop_Invariant (H.Mark_Failed or else Drained_Cdr (H));
-         pragma Loop_Invariant (H.Mark_Failed or else Drained_Env (H));
          pragma Loop_Invariant
-           (for all K in 1 .. H.Mark_Top =>
-              Is_Marked (H, H.Mark_Stack (Valid_Cell_Index (K))));
+           (for all N in 1 .. H.Mark_Top =>
+              Is_Marked (H, H.Mark_Stack (Valid_Cell_Index (N))));
+         pragma Loop_Invariant
+           (for all R in 1 .. Count => Is_Marked (H, Roots (R)));
          pragma Loop_Invariant
            (for all J in Valid_Cell_Index =>
               (if Is_Marked (H, J) then H.Cells (J).Kind /= Cell_Free));
-         --  A live queue tag is always the epoch the cell was marked with,
-         --  which the epoch jump has already pushed past: that is what
-         --  makes "no cell is queued" follow at a successful exit.
-         pragma Loop_Invariant
-           (for all J in Valid_Cell_Index =>
-              (if H.Cells (J).Queued /= 0
-               then H.Cells (J).Queued = H.Cells (J).Mark_Epoch));
          exit when H.Mark_Top = 0 or else H.Mark_Failed;
 
          Idx := H.Mark_Stack (Valid_Cell_Index (H.Mark_Top));
          H.Mark_Top := H.Mark_Top - 1;
-         H.Cells (Idx).Queued := 0;
-         C := H.Cells (Idx);
-
-         Root_Child (C.Car);
-         Root_Child (C.Cdr);
-         if C.Kind = Cell_Closure or else C.Kind = Cell_Environment then
-            Root_Child (From_Handle (C.Env));
+         --  Copy only the fields marking needs; a Cell carries a 256-byte
+         --  text buffer, so copying it would dominate a collection.
+         Car_V := H.Cells (Idx).Car;
+         Cdr_V := H.Cells (Idx).Cdr;
+         Mark_Child (Car_V);
+         Mark_Child (Cdr_V);
+         if H.Cells (Idx).Kind = Cell_Closure
+           or else H.Cells (Idx).Kind = Cell_Environment
+         then
+            Env_H := H.Cells (Idx).Env;
+            Mark_Child (From_Handle (Env_H));
          end if;
       end loop;
 
       --  A for-loop that runs to completion does not imply its exit
-      --  condition: a non-empty stack here means the rounds ran out, which
-      --  is exactly the "marking did not finish" case -- record it as a
-      --  failure so the caller skips the sweep.  The epoch jump at the next
-      --  call retires whatever was marked.
+      --  condition: a non-empty worklist here means the rounds ran out.
       if H.Mark_Top /= 0 then
          H.Mark_Failed := True;
       end if;
@@ -649,9 +657,58 @@ is
          H.Mark_Top := 0;
          return;
       end if;
-      --  Marking completed: the closure facts are in the postcondition and
-      --  the sweep runs in Tr7.Reach, on the caller's side of the failure
-      --  flag.
+
+      --  Verification scan: check the closure of the marked set on the
+      --  finished heap, without writing it.  The loop invariants are the
+      --  three per-child facts over the cells already scanned; because the
+      --  body does not touch H, their preservation is immediate, and a
+      --  failure simply abandons the cycle (Mark_Failed), which can only
+      --  leave garbage in place, never free live data.  This is what lets
+      --  the drain above keep trivial invariants and stay O(n).
+      Verified := True;
+      for J in Valid_Cell_Index loop
+         pragma Loop_Invariant (H.Ready);
+         pragma Loop_Invariant (H.Mark_Top = 0);
+         pragma Loop_Invariant (H.Free_Count = Free_Before);
+         pragma Loop_Invariant
+           (for all R in 1 .. Count => Is_Marked (H, Roots (R)));
+         pragma Loop_Invariant
+           (for all K in Valid_Cell_Index =>
+              (if Is_Marked (H, K) then H.Cells (K).Kind /= Cell_Free));
+         pragma Loop_Invariant
+           (for all K in Valid_Cell_Index =>
+              (if K < J and then Is_Marked (H, K)
+               then Child_Marked (H, H.Cells (K).Car)));
+         pragma Loop_Invariant
+           (for all K in Valid_Cell_Index =>
+              (if K < J and then Is_Marked (H, K)
+               then Child_Marked (H, H.Cells (K).Cdr)));
+         pragma Loop_Invariant
+           (for all K in Valid_Cell_Index =>
+              (if K < J and then Is_Marked (H, K)
+                 and then (H.Cells (K).Kind = Cell_Closure
+                           or else H.Cells (K).Kind = Cell_Environment)
+               then Child_Marked (H, From_Handle (H.Cells (K).Env))));
+
+         if Is_Marked (H, J) then
+            if not (Child_Marked (H, H.Cells (J).Car)
+                    and then Child_Marked (H, H.Cells (J).Cdr)
+                    and then
+                      (if H.Cells (J).Kind = Cell_Closure
+                         or else H.Cells (J).Kind = Cell_Environment
+                       then Child_Marked
+                         (H, From_Handle (H.Cells (J).Env))
+                       else True))
+            then
+               Verified := False;
+               exit;
+            end if;
+         end if;
+      end loop;
+
+      if not Verified then
+         H.Mark_Failed := True;
+      end if;
    end Collect;
 
 end Tr7.Heap;

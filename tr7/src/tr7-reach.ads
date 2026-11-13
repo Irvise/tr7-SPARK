@@ -80,8 +80,6 @@ is
                   and then Tr7.Heap.Closure (H)
                   and then Tr7.Heap.Is_Marked (H, From)
                   and then Reachable (H, From, To, Fuel)
-                  and then (for all J in Valid_Cell_Index =>
-                              not Tr7.Heap.On_Stack (H, J))
                 then Marked_If_Reached'Result
                   and then Tr7.Heap.Is_Marked (H, To));
 
@@ -109,9 +107,7 @@ is
          and then Tr7.Heap.Roots_Marked (H, Roots, Count)
          and then (for all J in Valid_Cell_Index =>
                      (if Tr7.Heap.Is_Marked (H, J)
-                      then H.Cells (J).Kind /= Cell_Free))
-         and then (for all J in Valid_Cell_Index =>
-                     not Tr7.Heap.On_Stack (H, J)),
+                      then H.Cells (J).Kind /= Cell_Free)),
        Post => H.Ready
          and then H.Mark_Top = 0
          and then H.Free_Count >= H.Free_Count'Old

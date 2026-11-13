@@ -60,9 +60,6 @@ is
          pragma Loop_Invariant (H.Mark_Top = 0);
          pragma Loop_Invariant (H.Epoch = H'Loop_Entry.Epoch);
          pragma Loop_Invariant (H.Free_Count >= H.Free_Count'Loop_Entry);
-         pragma Loop_Invariant
-           (for all J in Valid_Cell_Index =>
-              not Tr7.Heap.On_Stack (H, J));
          --  LIVENESS: every cell reachable from a root is marked -- stated
          --  through the lemma, because only a conjunct containing the
          --  lemma's call imports its postcondition axiom, and GNATprove

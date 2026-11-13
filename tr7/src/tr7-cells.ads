@@ -46,11 +46,6 @@ is
       --  Heap.Epoch after every sweep, which retires all earlier marks in one
       --  assignment instead of a pass over the arena (see Tr7.Heap).
       Mark_Epoch : Unsigned_64 := 0;
-      --  The epoch at which this cell was pushed on the mark stack, or 0
-      --  when it is not on it.  Epoch-stamped rather than a flag so tags
-      --  from an abandoned cycle expire with the next epoch jump instead
-      --  of needing a clearing pass.
-      Queued     : Unsigned_64 := 0;
 
       --  Pair, closure parameters/body, environment bindings.
       Car : Value := Nil_Value;

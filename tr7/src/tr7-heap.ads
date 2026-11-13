@@ -2,9 +2,9 @@
 --
 --  v1 uses an engine-owned arena of fixed-size cells.  Allocation pops from a
 --  singly linked free list; release pushes back.  The collector reuses the
---  same free list: callers root what they are holding with Mark_Root and then
---  call Collect, which drains the mark stack and sweeps unmarked cells back
---  onto the free list.
+--  same free list: the caller (Collect_Garbage) resolves the machine's roots
+--  and calls Collect, which propagates marks to a fixed point and then sweeps
+--  unmarked cells back onto the free list.
 
 with Interfaces; use Interfaces;
 with Tr7.Cells; use Tr7.Cells;
@@ -16,11 +16,6 @@ package Tr7.Heap with
    SPARK_Mode => On
 is
 
-   --  The mark stack holds cells whose outgoing references still have to be
-   --  visited.  A cell is pushed at most once (it is marked on the way in), so
-   --  Max_Cells entries are enough for any object graph in the arena.
-   type Mark_Array is array (Valid_Cell_Index) of Valid_Cell_Index;
-
    --  The roots of one collection, as cells: the caller (Collect_Garbage)
    --  resolves every root value to its live cell and hands the list over.
    --  The bound is the worst case without deduplication -- six frame slots
@@ -29,6 +24,11 @@ is
    Max_Roots : constant := 6 * Max_Cells + 8;
    subtype Root_Count is Natural range 0 .. Max_Roots;
    type Root_Array is array (1 .. Max_Roots) of Valid_Cell_Index;
+
+   --  The mark worklist.  A cell is pushed when it is first marked, so a
+   --  cell appears at most once and Max_Cells entries suffice for any graph
+   --  in the arena.
+   type Mark_Array is array (Valid_Cell_Index) of Valid_Cell_Index;
 
    type Heap_Type is record
       Cells       : Cell_Array;
@@ -43,6 +43,9 @@ is
       --  below is defence in depth.
       Error_Msg   : Value := Nil_Value;
       Mark_Stack  : Mark_Array := (others => Valid_Cell_Index'First);
+      --  Number of live entries in Mark_Stack; zero means the marking
+      --  worklist has drained.  The reachability lemma and the collector's
+      --  contracts speak about this being zero.
       Mark_Top    : Natural range 0 .. Max_Cells := 0;
       Mark_Failed : Boolean := False;
       --  Collection cycle.  A cell is marked when its Mark_Epoch equals Epoch,
@@ -343,59 +346,55 @@ is
    function Is_Marked (H : Heap_Type; J : Cell_Index) return Boolean is
      (J /= 0 and then H.Cells (J).Mark_Epoch = H.Epoch);
 
-   function On_Stack (H : Heap_Type; J : Cell_Index) return Boolean is
-     (J /= 0 and then H.Cells (J).Queued = H.Epoch);
-
    --  One child is rooted when the value is dead (nothing to root) or its
    --  cell is marked.  A single atom: stated once here so neither the
-   --  closure nor the drain's invariants pay for two Live_Cell expansions
-   --  per child.
+   --  closure nor the collector's invariants pay for two Live_Cell
+   --  expansions per child.
+   --  Stated directly on the cell fields rather than through Live_Cell:
+   --  logically the same (dead/out-of-range/free/stale-generation children
+   --  need no mark), but with no Live_Cell postcondition to re-instantiate
+   --  inside quantified preservation proofs.  That postcondition was the
+   --  main source of quantifier instantiation in the collector's VCs.
    function Child_Marked (H : Heap_Type; V : Value) return Boolean is
-     (Live_Cell (H, V) = 0 or else Is_Marked (H, Live_Cell (H, V)));
+     (if not Is_Handle (V)
+      then True
+      elsif To_Handle (V).Index not in Valid_Cell_Index
+      then True
+      elsif H.Cells (To_Handle (V).Index).Kind = Cell_Free
+      then True
+      elsif H.Cells (To_Handle (V).Index).Generation /= To_Handle (V).Generation
+      then True
+      else H.Cells (To_Handle (V).Index).Mark_Epoch = H.Epoch);
 
-   --  One-step closure of the marked set: every marked cell is either still
-   --  on the worklist or has all of its children marked -- exactly the
-   --  children the drain roots: Car, Cdr, and Env for closures and
-   --  environments.  The reachability lemma takes this as its hypothesis.
-   function Closure (H : Heap_Type) return Boolean is
+   --  Closedness of the marked set, split per child.  Splitting matters for
+   --  proof: GNATprove slices a loop invariant into one VC per top-level
+   --  conjunct, so each child is one quantifier and one case split per
+   --  preservation proof instead of the prover chasing every child of every
+   --  cell at once.  Closure conjoins them for the callers (the reachability
+   --  lemma and the sweep) that want the single fact.
+   function Closed_Car (H : Heap_Type) return Boolean is
      (for all J in Valid_Cell_Index =>
         (if Is_Marked (H, J)
-         then On_Stack (H, J)
-           or else (Child_Marked (H, H.Cells (J).Car)
-                    and then Child_Marked (H, H.Cells (J).Cdr)
-                    and then (if H.Cells (J).Kind = Cell_Closure
-                                or else H.Cells (J).Kind = Cell_Environment
-                              then Child_Marked
-                                (H, From_Handle (H.Cells (J).Env))
-                              else True))));
-
-   --  The drain's own invariant, in processed-cells form: a marked cell
-   --  that is no longer on the worklist has all of its children marked.
-   --  Logically Closure with the worklist empty, but split per child:
-   --  one invariant per child is one quantifier and one case split per
-   --  preservation proof, where the conjunction made the prover chase
-   --  every child of every cell at once and time out.  At drain exit
-   --  (stack empty) the three coincide with Closure, which is what
-   --  Collect's postcondition states.
-   function Drained_Car (H : Heap_Type) return Boolean is
-     (for all J in Valid_Cell_Index =>
-        (if Is_Marked (H, J) and then not On_Stack (H, J)
          then Child_Marked (H, H.Cells (J).Car)));
 
-   function Drained_Cdr (H : Heap_Type) return Boolean is
+   function Closed_Cdr (H : Heap_Type) return Boolean is
      (for all J in Valid_Cell_Index =>
-        (if Is_Marked (H, J) and then not On_Stack (H, J)
+        (if Is_Marked (H, J)
          then Child_Marked (H, H.Cells (J).Cdr)));
 
-   function Drained_Env (H : Heap_Type) return Boolean is
+   function Closed_Env (H : Heap_Type) return Boolean is
      (for all J in Valid_Cell_Index =>
-        (if Is_Marked (H, J) and then not On_Stack (H, J)
+        (if Is_Marked (H, J)
            and then (H.Cells (J).Kind = Cell_Closure
                      or else H.Cells (J).Kind = Cell_Environment)
          then Child_Marked (H, From_Handle (H.Cells (J).Env))));
 
-   function Drained (H : Heap_Type) return Boolean is
-     (Drained_Car (H) and then Drained_Cdr (H) and then Drained_Env (H));
+   --  One-step closure of the marked set: every marked cell has all of its
+   --  children marked -- exactly the children the collector marks: Car, Cdr,
+   --  and Env for closures and environments.  The reachability lemma takes
+   --  this as its hypothesis.
+   function Closure (H : Heap_Type) return Boolean is
+     (Closed_Car (H) and then Closed_Cdr (H) and then Closed_Env (H));
 
    function Roots_Marked (H : Heap_Type; Roots : Root_Array;
                           Count : Root_Count) return Boolean is
@@ -403,17 +402,22 @@ is
 
    --  Collector: retire the previous cycle's marks by jumping Epoch past
    --  every mark in the arena (this cycle therefore starts clean, provably
-   --  inside this procedure -- no cross-call reasoning about epochs), root
-   --  the cells in Roots, drain the mark stack, and -- when marking
-   --  completed -- leave exactly the closure facts the sweep needs.
+   --  inside this procedure -- no cross-call reasoning about epochs), mark
+   --  the cells in Roots, propagate marks to a fixed point, and -- when
+   --  marking completed -- leave exactly the closure facts the sweep needs.
    --  The sweep itself lives in Tr7.Reach, so reachability mathematics
    --  never enters this unit's proof obligations.
    --
-   --  Marking cannot fail silently: a full mark stack sets Mark_Failed, a
-   --  drain that runs out of rounds sets it too, and Collect then abandons
+   --  Marking cannot fail silently: if the fixed point is not reached within
+   --  the bounded number of passes, Mark_Failed is set and Collect abandons
    --  the cycle without sweeping -- which can only leave garbage in place,
-   --  never free a live cell.  The caller skips the sweep when
-   --  Mark_Failed is set on return.
+   --  never free a live cell.  The caller skips the sweep when Mark_Failed
+   --  is set on return.
+   --
+   --  The postcondition states the three closedness facts separately rather
+   --  than as Closure: each top-level conjunct is one proof slice (see the
+   --  note on Closed_Car), and Closure would make the prover chase all
+   --  children of every cell in a single VC.
    procedure Collect
      (H     : in out Heap_Type;
       Roots : Root_Array;
@@ -426,10 +430,10 @@ is
          and then H.Mark_Top = 0
          and then H.Free_Count = H.Free_Count'Old
          and then (if not H.Mark_Failed
-                   then Closure (H)
+                   then Closed_Car (H)
+                     and then Closed_Cdr (H)
+                     and then Closed_Env (H)
                      and then Roots_Marked (H, Roots, Count)
-                     and then (for all J in Valid_Cell_Index =>
-                                 not On_Stack (H, J))
                      and then (for all J in Valid_Cell_Index =>
                                  (if Is_Marked (H, J)
                                   then H.Cells (J).Kind /= Cell_Free)));

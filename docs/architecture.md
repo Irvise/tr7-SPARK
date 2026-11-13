@@ -356,24 +356,40 @@ next datum) in the engine's read loop.  At those points the CEK state -- control
 result, current environment and every continuation frame -- plus the global
 environment are a *complete* root set, and no step-local object is alive.
 
-- `Tr7.Machine.Collect_Garbage` roots that state with `Tr7.Heap.Mark_Root` and
-  then calls `Tr7.Heap.Collect`.
-- `Collect` drains a bounded mark stack (each cell is pushed at most once, so
-  `Max_Cells` entries suffice), then sweeps every cell whose mark *epoch* is
-  not the current cycle's back onto the free list, in place, without touching
-  their generation -- the generation check on the next allocation is what
-  rejects stale handles.
+- `Tr7.Machine.Collect_Garbage` resolves that state to a list of live cells
+  (`Tr7.Heap.Live_Cell`, the one place that decides whether a handle is still
+  live) and calls `Tr7.Heap.Collect` with the list.  There is no separate
+  `Mark_Root` entry point.
+- `Collect` first *jumps the epoch* past every mark in the arena, so each
+  cycle provably starts clean inside `Collect` itself; no call site has to
+  reason about what a previous collection left behind.  It then marks the
+  root list and drains a bounded worklist (a cell is pushed at most once, so
+  `Max_Cells` entries suffice).
+- The drain's invariants deliberately say nothing about closure.  Closure --
+  "every marked cell has its `Car`, `Cdr` and (for closures/environments)
+  `Env` marked" -- is checked afterwards by a **read-only verification
+  scan**.  Because the scan writes nothing, its quantified invariants are
+  preserved trivially, and a failure only sets `Mark_Failed` (the cycle is
+  abandoned, so garbage is left in place but nothing live is ever freed).
+  This split is what keeps the collector linear and the proof small: putting
+  the quantified closure fact inside the drain forced the prover to reason
+  about array-of-record updates under a quantifier (see `docs/findings.md`).
+- The sweep lives in `Tr7.Reach`, which proves the M5 liveness goal: the
+  worklist drained and the marked set is closed, so a fuel-bounded
+  `Reachable` predicate plus a path-induction lemma show every cell reachable
+  from a root is marked, and the sweep only frees cells whose mark epoch is
+  not the current one.
 - Marks are epochs, not bits: a cell is marked when `Mark_Epoch = Epoch`, and
-  `Epoch` advances after every sweep, retiring the whole cycle's marks in one
-  assignment.  That removes both the clearing pass over the arena and, with it,
-  the quantified loop invariant that `-gnata` evaluates at run time (4,096 x
-  4,096 tests per collection -- `docs/findings.md`).  After 2**64 cycles
-  `Collect_Stopped` latches and the collector stops freeing altogether rather
-  than ever sweeping against a stale epoch.
-- If marking cannot complete (a full mark stack), the cycle is abandoned: every
-  mark is dropped and *no* cell is freed.  A failed collection therefore only
-  leaves garbage in place; it can never free a live object.  `Collect` has no
-  success flag because the heap is left exactly as it was.
+  `Epoch` advances at the start of every collection, retiring the whole
+  cycle's marks in one assignment.  That removes both the clearing pass over
+  the arena and the quantified loop invariant that `-gnata` would evaluate at
+  run time (4,096 x 4,096 tests per collection -- `docs/findings.md`).  After
+  2**64 cycles `Collect_Stopped` latches and the collector stops freeing
+  altogether rather than ever sweeping against a stale epoch.
+- If marking cannot complete (a full worklist, exhausted rounds, or a failed
+  verification scan), the cycle is abandoned: every mark is dropped and *no*
+  cell is freed.  A failed collection therefore only leaves garbage in place;
+  it can never free a live object.
 - Trigger: `H.Free_Count <= GC_Low_Water` (512 cells) at a safe point, or a
   fixed cadence under `--stress-gc` (`GC_Stress_Every`, 8).
 - The reader never allocates while a collection can run, so reader temporaries

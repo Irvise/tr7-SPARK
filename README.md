@@ -5,9 +5,13 @@ interpreter, with a REPL, a C ABI subset, and a verified core.
 
 ## Status
 
-Milestone M0: walking skeleton.  The REPL evaluates literals, `quote`, `if`,
-`lambda`, `define`, `set!`, `begin`, applications, and a first set of
-primitives.  The core uses handles, a fixed cell arena and a CEK evaluator.
+Milestones M0–M5 are complete.  The REPL evaluates the core R7RS forms
+(literals, `quote`, `if`, `lambda`, `define`, `set!`, `begin`, applications,
+the derived binding and conditional forms, `do`, `quasiquote`, `map`,
+`for-each`, `apply`, `values`, restricted `call/cc` and `dynamic-wind`), a
+broad primitive set, and a C ABI subset.  The core uses handles, a fixed cell
+arena and a CEK evaluator, and its mark-sweep collector is proved at SPARK
+level 4: every cell reachable from a root is marked and never swept.
 
 Exact integers are fixnums in `-(2**31) .. 2**31 - 1`; out-of-range arithmetic
 reports `exact integer overflow` instead of wrapping.  The range satisfies

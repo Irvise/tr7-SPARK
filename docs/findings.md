@@ -474,3 +474,65 @@ instruction-level attribution of a microsecond-scale function is needed.
 
 `free-cells` is a small non-standard extension primitive: it lets the GC suite
 assert that garbage was actually reclaimed, not merely that nothing crashed.
+
+## M5: proving reachability without poisoning the collector
+
+The M5 goal was: after `Collect`, `marked = reachable-from-roots`, so the
+sweep can never free a live cell.  The first attempt put the closure fact
+("every marked cell has its children marked") directly into the drain's loop
+invariants.  GNATprove could not discharge the preservation VCs: the proofs
+were *timeouts, not refutations* -- z3 still timed out at 300 s and cvc5
+returned `unknown (incomplete)`.  The cause was structural: preserving a
+quantified predicate while updating an array of records (`Mark_Epoch`) and
+re-reading `Live_Cell` for every cell is a congruence problem no single SMT
+step can close.
+
+What broke the logjam, in order of importance:
+
+1. **Check closure after marking, in a read-only loop.**  The drain only has
+   to maintain that every worklist entry is marked and that marks only ever
+   live cells.  A second scan then checks the three child facts on the
+   finished heap; because it writes nothing, its quantified invariants are
+   preserved trivially.  A failed check sets `Mark_Failed` and the sweep is
+   skipped, so the check can only cost garbage, never safety.  This is what
+   makes the proof small *and* keeps the collector linear.
+2. **State `Child_Marked` directly on the cell fields.**  The earlier version
+   went through `Live_Cell`, whose postcondition (`Result = Hd.Index`, kind,
+   generation) had to be re-instantiated inside every quantified VC.  The
+   direct form -- not a handle, or out of range, or free, or stale generation,
+   or `Mark_Epoch = Epoch` -- is logically the same and roughly an order of
+   magnitude cheaper to reason about.
+3. **Write the marking test and the predicate with the same expression.**
+   `Mark_Child` resolves `To_Handle (V).Index` itself instead of calling
+   `Live_Cell`, so "the cell just marked" and "the child the invariant speaks
+   about" are syntactically the same index.
+4. **Split closure per child** (`Closed_Car`/`Closed_Cdr`/`Closed_Env`) in the
+   invariants and in `Collect`'s postcondition.  GNATprove slices one VC per
+   top-level conjunct; a single conjunction over all children made each slice
+   chase every child of every cell.
+5. **Unit split and proof-only invariants** were already in place from the
+   WIP: `Tr7.Reach` owns `Reachable` (its definition axiom is a quantifier
+   storm for any unit that mentions it), and `tr7/gnat.adc` compiles loop
+   invariants away at run time without removing their proof obligations.
+
+A detour worth recording: a scan-based fixed-point marking algorithm (forward
+and backward passes until no marks change) *did* prove, but it was
+unacceptable in practice -- a cons-built list needs one round per link, and
+the stress suite ran for minutes.  The worklist plus read-only verification
+is both the faster design and the simpler proof.
+
+Performance after the rewrite (checks off, `scripts/bench.sh`):
+
+| workload | M4 | M5 |
+| --- | --- | --- |
+| 612 collections of an idle heap | 2.3 us each | 7.7 us each |
+| `tests/gc.scm` (3,000-element list, 6,000 tail calls) | 0.11 s | 0.18 s |
+| the same under `--stress-gc` | 2.3 s | 1.1 s |
+| 500 datums of `(display 1)(newline)` | 0.005 s | 0.006 s |
+
+The idle collection pays for the epoch jump and the read-only verification
+scan (both linear passes the old collector did not have in that form); the
+stress workload is faster because marking no longer copies whole cells.  The
+collector copies only the `Car`/`Cdr`/`Env` fields it needs -- never the
+256-byte text buffer in `Cell` -- on each visit.  Checked-build tests stay in
+the same range: the `gc (stress)` suite takes about 2.4 s.
