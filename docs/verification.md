@@ -24,6 +24,13 @@ This is not a machine-checked proof of R7RS semantics.  In particular:
 - C ABI compatibility is function-level, not bit-level tagged-pointer
   compatibility.
 
+## M5 in progress
+
+M5 (GC reachability/liveness proof) is in progress and the gate on the work
+branch `m5-wip` is red.  The full handoff -- goal, validated architecture,
+failing checks, experiments tried and resume plan -- is in
+[`docs/M5-TASK.md`](M5-TASK.md).  The numbers below describe `master`.
+
 ## Running the proof
 
 ```sh

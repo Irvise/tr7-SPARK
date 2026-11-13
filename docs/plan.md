@@ -134,7 +134,7 @@ not declared as a crate dependency, so `alr build` requires only GNAT and GPR.
 | M2 | 2-3 weeks | Reader/writer, full CEK machine, core special forms, tail calls |
 | M3 | 2 weeks | Core primitives, errors, restricted `call/cc`, `dynamic-wind`, `values` -- **complete**: `error`, `values`/`call-with-values`, restricted `call/cc` and `dynamic-wind` are in (`tests/error.scm`, `tests/values.scm`, `tests/callcc.scm`, `tests/wind.scm`) |
 | M4 | 2 weeks | String ports, REPL, C ABI subset + generated stubs, core test suite -- **complete**: string ports (`tests/ports.scm`), the REPL, the C ABI (six contracted entry points, 177 generated stubs, `tests/abi_demo.c`) and 44 test runs |
-| M5 | 2-3 weeks | Mark-sweep GC proof, Gold hardening, contracts, benchmarks, report |
+| M5 | 2-3 weeks | Mark-sweep GC proof, Gold hardening, contracts, benchmarks, report -- **in progress**, see [`M5-TASK.md`](M5-TASK.md) |
 
 Estimated hand-written core size: 6-8k lines of Ada, plus generated C ABI stubs
 and tests.
