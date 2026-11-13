@@ -124,6 +124,7 @@ is
       P_Last_Pair,
       P_Eqv_P,
       P_Boolean_Equal,
-      P_Symbol_Equal);
+      P_Symbol_Equal,
+      P_Values_P);
 
 end Tr7.Ids;

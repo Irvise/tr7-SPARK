@@ -9,8 +9,7 @@ done
 #<eof>
 #t
 #t
-"hi(1 2)
-"
+"hi(1 2)\n"
 #f
 #f
 #t

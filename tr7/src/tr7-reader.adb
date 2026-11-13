@@ -46,7 +46,9 @@ is
 
    procedure Skip_Atmosphere (S : String; Pos : in out Natural)
      with
-       Pre  => S'First = 1 and then Pos <= S'Length,
+       Pre  => S'First = 1
+         and then S'Last <= Natural'Last - 2
+         and then Pos <= S'Length,
        Post => Pos <= S'Length
    is
       C : Character;
@@ -61,6 +63,24 @@ is
                pragma Loop_Invariant (Pos <= S'Length);
                Pos := Pos + 1;
             end loop;
+         elsif C = '#'
+           and then S'Length >= 2
+           and then Pos <= S'Length - 2
+           and then S (Pos + 2) = '|'
+         then
+            --  #| ... |# block comment.
+            Pos := Pos + 2;
+            while Pos < S'Length
+              and then not (S (Pos + 1) = '|'
+                            and then Pos <= S'Length - 2
+                            and then S (Pos + 2) = '#')
+            loop
+               pragma Loop_Invariant (Pos <= S'Length);
+               Pos := Pos + 1;
+            end loop;
+            if Pos < S'Length then
+               Pos := Pos + 2;
+            end if;
          else
             return;
          end if;
@@ -331,6 +351,74 @@ is
       Ok := True;
    end Parse_Float;
 
+   --  |...| symbols: everything between the bars is the name, with \| and
+   --  \\ escapes.  This is the readable form the writer emits for names
+   --  outside the ordinary symbol alphabet.
+   procedure Read_Bar_Symbol
+     (H      : in out Heap_Type;
+      S      : String;
+      Pos    : in out Natural;
+      Result : out Value;
+      Status : out Read_Status)
+     with
+       Pre  => H.Ready
+         and then S'First = 1
+         and then S'Last <= Natural'Last - 2
+         and then Pos < S'Length,
+       Post => H.Ready and then Pos <= S'Length
+   is
+      Buf : Text_Buffer := (others => ' ');
+      Len : Natural := 0;
+      C   : Character;
+      Ok  : Boolean;
+      Closed : Boolean := False;
+      Steps : Natural := S'Length + 1;
+   begin
+      Result := Nil_Value;
+      Status := Read_Error;
+      Pos := Pos + 1;
+      while Pos < S'Length and then Steps > 0 loop
+         pragma Loop_Invariant (Pos <= S'Length);
+         pragma Loop_Invariant (Len <= Max_Text);
+         pragma Loop_Invariant (H.Ready);
+         pragma Loop_Invariant (Steps >= 1);
+         pragma Loop_Variant (Decreases => Steps);
+         C := S (Pos + 1);
+         if C = '|' then
+            Pos := Pos + 1;
+            Closed := True;
+            exit;
+         end if;
+         if C = '\' then
+            Pos := Pos + 1;
+            if Pos >= S'Length then
+               return;
+            end if;
+            C := S (Pos + 1);
+            if C /= '|' and then C /= '\' then
+               return;
+            end if;
+         end if;
+         if Len >= Max_Text then
+            return;
+         end if;
+         Len := Len + 1;
+         Buf (Len) := C;
+         Pos := Pos + 1;
+         Steps := Steps - 1;
+      end loop;
+      if not Closed then
+         return;
+      end if;
+      pragma Assert (Pos <= S'Length);
+      Intern (H, Buf (1 .. Len), Result, Ok);
+      if Ok then
+         Status := Read_Ok;
+      else
+         Status := Read_Heap_Full;
+      end if;
+   end Read_Bar_Symbol;
+
    procedure Read_Internal
      (H      : in out Heap_Type;
       S      : String;
@@ -431,6 +519,7 @@ is
 
          New_Pair (H, Item, Nil_Value, Hd, Good);
          if not Good then
+            Status := Read_Heap_Full;
             return;
          end if;
          if Count = 0 then
@@ -481,6 +570,8 @@ is
       Esc : Character;
       Hd  : Handle;
       Ok  : Boolean;
+      Closed : Boolean := False;
+      Steps : Natural := S'Length + 1;
    begin
       Result := Nil_Value;
       Status := Read_Error;
@@ -488,16 +579,16 @@ is
       --  Consume the opening quote.
       Pos := Pos + 1;
 
-      loop
+      while Pos < S'Length and then Steps > 0 loop
          pragma Loop_Invariant (Pos <= S'Length);
          pragma Loop_Invariant (Len <= Max_Text);
          pragma Loop_Invariant (H.Ready);
-         if Pos >= S'Length then
-            return;
-         end if;
+         pragma Loop_Invariant (Steps >= 1);
+         pragma Loop_Variant (Decreases => Steps);
          C := S (Pos + 1);
          if C = '"' then
             Pos := Pos + 1;
+            Closed := True;
             exit;
          end if;
 
@@ -513,12 +604,68 @@ is
                C := HT;
             elsif Esc = 'r' then
                C := CR;
+            elsif Esc = 'a' then
+               C := Character'Val (7);
+            elsif Esc = 'b' then
+               C := Character'Val (8);
             elsif Esc = '"' or else Esc = '\' then
                C := Esc;
+            elsif Esc = 'x' then
+               --  \x<hex>;
+               declare
+                  Code : Natural := 0;
+                  Dig  : Natural;
+                  Seen : Boolean := False;
+                  Left : Natural := 8;
+               begin
+                  Pos := Pos + 1;
+                  loop
+                     pragma Loop_Invariant (Pos <= S'Length);
+                     pragma Loop_Variant (Decreases => Left);
+                     if Left = 0 then
+                        return;
+                     end if;
+                     Left := Left - 1;
+                     if Pos >= S'Length then
+                        return;
+                     end if;
+                     declare
+                        X : constant Character := S (Pos + 1);
+                     begin
+                        if X = ';' then
+                           Pos := Pos + 1;
+                           exit;
+                        end if;
+                        if X in '0' .. '9' then
+                           Dig := Character'Pos (X) - Character'Pos ('0');
+                        elsif X in 'a' .. 'f' then
+                           Dig := Character'Pos (X) - Character'Pos ('a') + 10;
+                        elsif X in 'A' .. 'F' then
+                           Dig := Character'Pos (X) - Character'Pos ('A') + 10;
+                        else
+                           return;
+                        end if;
+                        if Code > 255 / 16 then
+                           return;
+                        end if;
+                        Code := Code * 16 + Dig;
+                        Seen := True;
+                        Pos := Pos + 1;
+                     end;
+                  end loop;
+                  if not Seen or else Code > 255 then
+                     return;
+                  end if;
+                  C := Character'Val (Code);
+               end;
             else
                return;
             end if;
-            Pos := Pos + 1;
+            --  The \x<hex>; branch leaves Pos on the terminating ';';
+            --  every other escape leaves Pos on the escaped character.
+            if Esc /= 'x' then
+               Pos := Pos + 1;
+            end if;
          else
             Pos := Pos + 1;
          end if;
@@ -528,10 +675,16 @@ is
          end if;
          Len := Len + 1;
          Buf (Len) := C;
+         Steps := Steps - 1;
       end loop;
+      if not Closed then
+         return;
+      end if;
+      pragma Assert (Pos <= S'Length);
 
       New_String (H, Buf (1 .. Len), Hd, Ok);
       if not Ok then
+         Status := Read_Heap_Full;
          return;
       end if;
       Result := From_Handle (Hd);
@@ -559,15 +712,43 @@ is
       Tail      : Value;
       St        : Read_Status;
       Elems     : Value;
-      Vec_Sym   : Value;
+      Hd        : Handle;
+      N         : Natural;
+      Left      : Natural := S'Length + 1;
    begin
       Result := Nil_Value;
       Status := Read_End;
 
-      Skip_Atmosphere (S, Pos);
-      if Pos >= S'Length then
-         return;
-      end if;
+      loop
+         pragma Loop_Invariant (H.Ready);
+         pragma Loop_Invariant (Pos <= S'Length);
+         pragma Loop_Variant (Decreases => Left);
+         if Left = 0 then
+            return;
+         end if;
+         Left := Left - 1;
+         Skip_Atmosphere (S, Pos);
+         if Pos >= S'Length then
+            return;
+         end if;
+         if S'Length >= 2
+           and then Pos <= S'Length - 2
+           and then S (Pos + 1) = '#'
+           and then S (Pos + 2) = ';'
+         then
+            if Depth <= 1 then
+               return;
+            end if;
+            Pos := Pos + 2;
+            Read_Internal (H, S, Pos, Depth - 1, Result, St);
+            if St /= Read_Ok then
+               Status := St;
+               return;
+            end if;
+         else
+            exit;
+         end if;
+      end loop;
 
       C := S (Pos + 1);
       Status := Read_Error;
@@ -621,10 +802,12 @@ is
             end if;
             Intern (H, Sym (1 .. Sym_Len), Quote_Sym, Ok);
             if not Ok then
+               Status := Read_Heap_Full;
                return;
             end if;
             Cons (H, Quoted, Nil_Value, Tail, Ok);
             if not Ok then
+               Status := Read_Heap_Full;
                return;
             end if;
             Cons (H, Quote_Sym, Tail, Result, Ok);
@@ -640,23 +823,66 @@ is
          return;
       end if;
 
+      if C = '|' then
+         Read_Bar_Symbol (H, S, Pos, Result, Status);
+         return;
+      end if;
+
       if C = '#' then
          if Pos + 2 > S'Length then
             return;
          end if;
          C := S (Pos + 2);
          if C = 't' then
-            Pos := Pos + 2;
-            Result := True_Value;
-            Status := Read_Ok;
+            if S'Length >= 5
+              and then Pos <= S'Length - 5
+              and then S (Pos + 3 .. Pos + 5) = "rue"
+            then
+               if Pos = S'Length - 5
+                 or else (Pos <= S'Length - 6
+                          and then Is_Delimiter (S (Pos + 6)))
+               then
+                  Pos := Pos + 5;
+                  Result := True_Value;
+                  Status := Read_Ok;
+               end if;
+               return;
+            elsif Pos = S'Length - 2
+              or else (Pos <= S'Length - 3
+                       and then Is_Delimiter (S (Pos + 3)))
+            then
+               Pos := Pos + 2;
+               Result := True_Value;
+               Status := Read_Ok;
+            end if;
             return;
          elsif C = 'f' then
-            Pos := Pos + 2;
-            Result := False_Value;
-            Status := Read_Ok;
+            if S'Length >= 6
+              and then Pos <= S'Length - 6
+              and then S (Pos + 3 .. Pos + 6) = "alse"
+            then
+               if Pos = S'Length - 6
+                 or else (Pos <= S'Length - 7
+                          and then Is_Delimiter (S (Pos + 7)))
+               then
+                  Pos := Pos + 6;
+                  Result := False_Value;
+                  Status := Read_Ok;
+               end if;
+               return;
+            elsif Pos = S'Length - 2
+              or else (Pos <= S'Length - 3
+                       and then Is_Delimiter (S (Pos + 3)))
+            then
+               Pos := Pos + 2;
+               Result := False_Value;
+               Status := Read_Ok;
+            end if;
             return;
          elsif C = 'u' then
-            --  #u8(1 2 3) is (bytevector 1 2 3), the same wrap as #( ... ).
+            --  #u8(...) is a bytevector datum, exactly like #(...) is a
+            --  vector datum.  Reading it must not require evaluating the
+            --  constructor, or writer output would not read back.
             if Pos + 4 > S'Length then
                return;
             end if;
@@ -672,19 +898,36 @@ is
                Status := St;
                return;
             end if;
-            Intern (H, "bytevector", Vec_Sym, Ok);
-            if not Ok then
+            Length (H, Elems, N, Ok);
+            if not Ok or else N > Max_Text then
                return;
             end if;
-            Cons (H, Vec_Sym, Elems, Result, Ok);
-            if Ok then
-               Status := Read_Ok;
+            declare
+               Bytes : String (1 .. Max_Text) := (others => ' ');
+               Elem  : Value;
+            begin
+               for I in 1 .. N loop
+                  Nth (H, Elems, I - 1, Elem, Ok);
+                  if not Ok or else not Is_Fixnum (Elem)
+                    or else Elem.N < 0 or else Elem.N > 255
+                  then
+                     return;
+                  end if;
+                  Bytes (I) := Character'Val (Integer (Elem.N));
+               end loop;
+               New_Bytevector (H, Bytes (1 .. N), Hd, Ok);
+            end;
+            if not Ok then
+               Status := Read_Heap_Full;
+               return;
             end if;
+            Result := From_Handle (Hd);
+            Status := Read_Ok;
             return;
          elsif C = '(' then
-            --  #(1 2 3) is (vector 1 2 3): the elements are expressions and
-            --  get evaluated, so the reader only wraps what Read_List already
-            --  knows how to read -- the same trick as 'x becoming (quote x).
+            --  #(...) is a vector datum.  Building it here (rather than
+            --  wrapping a `vector` call) makes quoted vectors, writer
+            --  round-trips and self-evaluation all agree.
             if Depth <= 1 then
                return;
             end if;
@@ -694,14 +937,17 @@ is
                Status := St;
                return;
             end if;
-            Intern (H, "vector", Vec_Sym, Ok);
+            Length (H, Elems, N, Ok);
             if not Ok then
                return;
             end if;
-            Cons (H, Vec_Sym, Elems, Result, Ok);
-            if Ok then
-               Status := Read_Ok;
+            New_Vector (H, Elems, N, Hd, Ok);
+            if not Ok then
+               Status := Read_Heap_Full;
+               return;
             end if;
+            Result := From_Handle (Hd);
+            Status := Read_Ok;
             return;
          elsif C = '\' then
             Pos := Pos + 2;

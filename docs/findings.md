@@ -419,11 +419,11 @@ nothing and the "unchecked" binary is still the checked one.  `bench.sh` is
 immune because it removes the object directories first; a hand-rolled
 comparison is not.
 
-The checked profile keeps quantified loop invariants live on purpose -- they
-are what proves the sweep leaves no stale mark -- and pays for it: the stress
-suite takes 2.3 s there as well, dominated by ~0.2 ms collections (marking a
-3,000-cell live set).  That is acceptable for a test build; anything timed goes
-through `scripts/bench.sh`.
+GNATprove still generates and discharges every quantified loop invariant in
+the checked profile, but `tr7/gnat.adc` sets `Loop_Invariant => Ignore`, so the
+checked binary does not evaluate them at run time.  The invariants are
+proof-only; pre/post and type checks stay live under `-gnata`.  The stress
+suite's cost is therefore actual marking/sweeping, not invariant evaluation.
 
 ### The regression the suites caught, and what fixed it
 

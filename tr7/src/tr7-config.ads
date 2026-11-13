@@ -25,15 +25,17 @@ is
    --  Mark-sweep collector.  Collection only ever runs at a safe point (the
    --  top of the evaluator loop, between steps), where the CEK state plus the
    --  global environment are a complete root set.  GC_Low_Water is the
-   --  free-cell threshold that triggers a collection there; it leaves enough
-   --  headroom for a whole step to allocate without running out.
+   --  free-cell threshold that triggers a collection there.  It is a
+   --  heuristic headroom, not a guarantee: a single allocation-heavy step
+   --  (list-copy, make-vector) can need more, in which case allocation
+   --  reports heap exhausted at the safe point after that step.
    GC_Low_Water : constant := 512;
 
    --  Under --stress-gc a collection runs every this many evaluator steps
    --  rather than every one: one sweep touches the whole arena, so every
-   --  step would be dominated by memory bandwidth.  Eight still gives tens
+   --  step would be dominated by memory bandwidth.  Nine still gives tens
    --  of thousands of collections over a test run.
-   GC_Stress_Every : constant := 8;
+   GC_Stress_Every : constant := 9;
 
    --  Exact integers are fixnums in -(2**31) .. 2**31 - 1.  Two properties
    --  drive this choice:

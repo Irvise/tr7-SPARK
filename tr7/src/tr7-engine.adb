@@ -89,6 +89,10 @@ is
                Status := Error_Parse;
                return;
 
+            when Read_Heap_Full =>
+               Status := Error_Heap_Full;
+               return;
+
             when Read_Ok =>
                if Pos = Old_Pos then
                   Status := Error_Parse;

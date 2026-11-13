@@ -138,6 +138,7 @@ is
          when P_Eqv_P              => return "eqv?";
          when P_Boolean_Equal      => return "boolean=?";
          when P_Symbol_Equal       => return "symbol=?";
+         when P_Values_P           => return "values?";
       end case;
    end Name_Of;
 
@@ -297,7 +298,7 @@ is
             --  half the range (the sum is then at most the range).  Anything
             --  else -- two operands whose sum might not fit -- reports an
             --  overflow rather than risking an unprovable check.
-            if abs Acc_F < 1.0 or else abs Term_F < 1.0
+            if abs Acc_F <= 1.0 or else abs Term_F <= 1.0
               or else (abs Acc_F <= Long_Float'Last / 2.0
                        and then abs Term_F <= Long_Float'Last / 2.0)
             then
@@ -387,7 +388,7 @@ is
                   Status := Error_Overflow;
                   return;
                end if;
-               if abs Acc_F < 1.0 or else abs Term_F < 1.0
+               if abs Acc_F <= 1.0 or else abs Term_F <= 1.0
                  or else (abs Acc_F <= Long_Float'Last / 2.0
                           and then abs Term_F <= Long_Float'Last / 2.0)
                then
@@ -502,11 +503,15 @@ is
                Status := Error_Overflow;
                return;
             end if;
-            --  One operand under one (the product is then below the
-            --  larger), or both under 1.3e154 (whose square is below the
-            --  range); anything else reports an overflow.
-            if abs Acc_F < 1.0 or else abs Term_F < 1.0
+            --  One operand at most one (the product cannot exceed the
+            --  other), both under 1.3e154 (whose square is below the
+            --  range), or one under two and the other under half the range.
+            --  The last case accepts representable products such as
+            --  2e154 * 2 while still rejecting real overflow.
+            if abs Acc_F <= 1.0 or else abs Term_F <= 1.0
               or else (abs Acc_F <= 1.3E154 and then abs Term_F <= 1.3E154)
+              or else (abs Acc_F <= Long_Float'Last / 2.0
+                       and then abs Term_F <= 2.0)
             then
                Acc_F := Acc_F * Term_F;
             else
@@ -905,6 +910,17 @@ is
                  and then (Kind = Cell_Closure
                              or else Kind = Cell_Primitive
                              or else Kind = Cell_Continuation);
+            end;
+         end if;
+      elsif P = P_Values_P then
+         Res := Is_Handle (Arr (1));
+         if Res then
+            declare
+               Kind  : Cell_Kind;
+               Valid : Boolean;
+            begin
+               Kind_Of (H, To_Handle (Arr (1)), Kind, Valid);
+               Res := Valid and then Kind = Cell_Values;
             end;
          end if;
       else
@@ -1322,6 +1338,9 @@ is
          when Tr7.Reader.Read_Error =>
             Result := Void_Value;
             Status := Error_Parse;
+         when Tr7.Reader.Read_Heap_Full =>
+            Result := Void_Value;
+            Status := Error_Heap_Full;
       end case;
    end Read_Prim;
 
@@ -1471,11 +1490,11 @@ is
       Arr   : Value_Array;
       Len   : Natural;
       Good  : Boolean;
-      A     : Cell;
-      B     : Cell;
-      Total : Natural;
+      C     : Cell;
+      Total : Natural := 0;
       Buf   : Text_Buffer := (others => ' ');
       Hd    : Handle;
+      Pos   : Natural;
    begin
       Result := Void_Value;
       Status := Error_Type;
@@ -1483,31 +1502,31 @@ is
       if not Good then
          return;
       end if;
-      Check_Arity (Len, 2, 2, Good);
+      Check_Arity (Len, 0, Max_Arguments, Good);
       if not Good then
          Status := Error_Wrong_Arity;
          return;
       end if;
-      String_Cell (H, Arr (1), A, Good);
-      if not Good then
-         return;
-      end if;
-      String_Cell (H, Arr (2), B, Good);
-      if not Good then
-         return;
-      end if;
 
-      Total := A.Name_Len + B.Name_Len;
-      if Total > Max_Text then
-         --  Strings live in one cell, so the result must fit in Max_Text.
-         Status := Error_Overflow;
-         return;
-      end if;
-      for I in 1 .. A.Name_Len loop
-         Buf (I) := A.Name (I);
-      end loop;
-      for I in 1 .. B.Name_Len loop
-         Buf (A.Name_Len + I) := B.Name (I);
+      for J in 1 .. Len loop
+         pragma Loop_Invariant (H.Ready);
+         pragma Loop_Invariant (Total <= Max_Text);
+         String_Cell (H, Arr (J), C, Good);
+         if not Good then
+            return;
+         end if;
+         if Total + C.Name_Len > Max_Text then
+            Status := Error_Overflow;
+            return;
+         end if;
+         Pos := Total;
+         for I in 1 .. C.Name_Len loop
+            pragma Loop_Invariant (Pos = Total + (I - 1));
+            pragma Loop_Invariant (Pos < Max_Text);
+            Pos := Pos + 1;
+            Buf (Pos) := C.Name (I);
+         end loop;
+         Total := Pos;
       end loop;
 
       New_String (H, Buf (1 .. Total), Hd, Good);
@@ -1531,6 +1550,7 @@ is
       Good : Boolean;
       A    : Cell;
       B    : Cell;
+      Same : Boolean := True;
    begin
       Result := Void_Value;
       Status := Error_Type;
@@ -1538,32 +1558,33 @@ is
       if not Good then
          return;
       end if;
-      Check_Arity (Len, 2, 2, Good);
+      Check_Arity (Len, 2, Max_Arguments, Good);
       if not Good then
          Status := Error_Wrong_Arity;
          return;
       end if;
-      String_Cell (H, Arr (1), A, Good);
-      if not Good then
-         return;
-      end if;
-      String_Cell (H, Arr (2), B, Good);
-      if not Good then
-         return;
-      end if;
-
-      Status := No_Error;
-      if A.Name_Len /= B.Name_Len then
-         Result := False_Value;
-         return;
-      end if;
-      for I in 1 .. A.Name_Len loop
-         if A.Name (I) /= B.Name (I) then
-            Result := False_Value;
+      for J in 1 .. Len - 1 loop
+         String_Cell (H, Arr (J), A, Good);
+         if not Good then
             return;
          end if;
+         String_Cell (H, Arr (J + 1), B, Good);
+         if not Good then
+            return;
+         end if;
+         if A.Name_Len /= B.Name_Len then
+            Same := False;
+         else
+            for I in 1 .. A.Name_Len loop
+               if A.Name (I) /= B.Name (I) then
+                  Same := False;
+                  exit;
+               end if;
+            end loop;
+         end if;
       end loop;
-      Result := True_Value;
+      Result := Bool (Same);
+      Status := No_Error;
    end String_Equal_Prim;
 
 
@@ -2010,6 +2031,7 @@ is
       Node  : Cell;
       Count : Natural := 0;
       Any   : Boolean := False;
+      Left  : Natural;
    begin
       Result := Void_Value;
       Status := Error_Type;
@@ -2017,18 +2039,32 @@ is
       if not Good then
          return;
       end if;
+      if Len = 0 then
+         Result := Nil_Value;
+         Status := No_Error;
+         return;
+      end if;
+      if Len = 1 then
+         --  append with one argument returns it unchanged, even if it is
+         --  not a list.
+         Result := Arr (1);
+         Status := No_Error;
+         return;
+      end if;
 
-      for J in 1 .. Len loop
+      --  Every argument but the last must be a proper list; the last may be
+      --  any object and becomes the final tail (R7RS 6.4).
+      for J in 1 .. Len - 1 loop
          pragma Loop_Invariant (Len <= Arr'Length);
          pragma Loop_Invariant (H.Ready);
          pragma Loop_Invariant (Count <= Max_List_Length);
          Cur := Arr (J);
-         loop
+         Left := Max_List_Length + 1;
+         while not Is_Nil (Cur) and then Left > 0 loop
             pragma Loop_Invariant (H.Ready);
             pragma Loop_Invariant (Count <= Max_List_Length);
-            exit when Is_Nil (Cur);
+            pragma Loop_Variant (Decreases => Left);
             if not Is_Handle (Cur) then
-               --  One of the arguments was not a proper list.
                Status := Error_Type;
                return;
             end if;
@@ -2059,13 +2095,23 @@ is
             Tail := Hd;
             Count := Count + 1;
             Cur := Node.Cdr;
+            Left := Left - 1;
          end loop;
+         if not Is_Nil (Cur) then
+            Status := Error_Overflow;
+            return;
+         end if;
       end loop;
 
       if Any then
+         Set_Cdr (H, Tail, Arr (Len), Good);
+         if not Good then
+            Status := Error_Heap_Full;
+            return;
+         end if;
          Result := From_Handle (Head);
       else
-         Result := Nil_Value;
+         Result := Arr (Len);
       end if;
       Status := No_Error;
    end Append_Prim;
@@ -2157,6 +2203,7 @@ is
       Cur   : Value;
       Node  : Cell;
       Assoc : Cell;
+      Left  : Natural := Max_List_Length + 1;
    begin
       Result := Void_Value;
       Status := Error_Type;
@@ -2171,8 +2218,9 @@ is
       end if;
 
       Cur := Arr (2);
-      loop
-         exit when Is_Nil (Cur);
+      while not Is_Nil (Cur) and then Left > 0 loop
+         pragma Loop_Invariant (H.Ready);
+         pragma Loop_Variant (Decreases => Left);
          if not Is_Handle (Cur) then
             Status := Error_Type;
             return;
@@ -2197,7 +2245,12 @@ is
             return;
          end if;
          Cur := Node.Cdr;
+         Left := Left - 1;
       end loop;
+      if not Is_Nil (Cur) then
+         Status := Error_Malformed;
+         return;
+      end if;
 
       Result := False_Value;
       Status := No_Error;
@@ -2215,6 +2268,7 @@ is
       Good : Boolean;
       Cur  : Value;
       Node : Cell;
+      Left : Natural := Max_List_Length + 1;
    begin
       Result := Void_Value;
       Status := Error_Type;
@@ -2229,8 +2283,9 @@ is
       end if;
 
       Cur := Arr (2);
-      loop
-         exit when Is_Nil (Cur);
+      while not Is_Nil (Cur) and then Left > 0 loop
+         pragma Loop_Invariant (H.Ready);
+         pragma Loop_Variant (Decreases => Left);
          if not Is_Handle (Cur) then
             Status := Error_Type;
             return;
@@ -2247,7 +2302,12 @@ is
             return;
          end if;
          Cur := Node.Cdr;
+         Left := Left - 1;
       end loop;
+      if not Is_Nil (Cur) then
+         Status := Error_Malformed;
+         return;
+      end if;
 
       Result := False_Value;
       Status := No_Error;
@@ -2435,8 +2495,13 @@ is
       if not Good then
          return;
       end if;
-      Div_Guard (A, B, Status);
-      if Status /= No_Error then
+      if B = 0 then
+         Status := Error_Division_By_Zero;
+         return;
+      end if;
+      if A = Fixnum_Min and then B = -1 then
+         Result := From_Fixnum (0);
+         Status := No_Error;
          return;
       end if;
       Result := From_Fixnum (Integer_64 (A rem B));
@@ -2553,8 +2618,13 @@ is
          if A = 0 then
             Result := From_Fixnum (0);
             Status := No_Error;
-         elsif A = 1 or else A = -1 then
+         elsif A = 1 then
             Result := From_Fixnum (1);
+            Status := No_Error;
+         elsif A = -1 then
+            --  Parity still matters when the exponent is large.
+            Result := From_Fixnum
+              ((if (Integer_64 (N) mod 2) = 0 then 1 else -1));
             Status := No_Error;
          else
             Status := Error_Overflow;
@@ -2590,7 +2660,6 @@ is
          pragma Loop_Invariant (Acc >= Fixnum_Min);
          pragma Loop_Invariant (Acc <= Fixnum_Max);
          pragma Loop_Invariant (Exp <= 63);
-         pragma Loop_Invariant (I <= Exp);
          Mul_Fixnum (Acc, A, Prod, Mul_Ok);
          if not Mul_Ok then
             Status := Error_Overflow;
@@ -2730,6 +2799,39 @@ is
       Status := Error_User;
    end Error_Prim;
 
+   --  One guarded float division.  The guard keeps the quotient provably
+   --  finite: a divisor of magnitude at least one cannot overflow, and a
+   --  divisor below one is accepted only when the numerator is bounded and
+   --  the divisor is not tiny.  The postcondition states the arithmetic
+   --  relation whenever the operation succeeds, which is exactly what the
+   --  chain fold below relies on.
+   procedure Div_Float
+     (Acc_F  : in out Long_Float;
+      Term_F : Long_Float;
+      Status : out Error_Code)
+     with
+       Post => (if Status = No_Error
+                then Acc_F = Acc_F'Old / Term_F)
+   is
+   begin
+      Status := No_Error;
+      if Term_F = 0.0 then
+         Status := Error_Division_By_Zero;
+         return;
+      end if;
+      if not In_Range (Acc_F) or else not In_Range (Term_F) then
+         Status := Error_Overflow;
+         return;
+      end if;
+      if abs Term_F >= 1.0
+        or else (abs Acc_F <= 1.0E300 and then abs Term_F >= 1.0E-8)
+      then
+         Acc_F := Acc_F / Term_F;
+      else
+         Status := Error_Overflow;
+      end if;
+   end Div_Float;
+
    procedure Div_Prim
      (H      : Heap_Type;
       Args   : Value;
@@ -2742,10 +2844,12 @@ is
       Good   : Boolean;
       Acc    : Fixnum;
       Term   : Fixnum;
-      Acc_F  : Long_Float;
+      Acc_F  : Long_Float := 0.0;
       Term_F : Long_Float;
+      Exact  : Boolean;
    begin
       Result := Void_Value;
+      Acc := 0;
       Status := Error_Type;
       Args_Of (H, Args, Arr, Len, Good);
       if not Good then
@@ -2756,125 +2860,112 @@ is
          return;
       end if;
 
-      --  (car x) style: one operand is the reciprocal.
+      --  One operand is the reciprocal.  The reciprocal of 1 and -1 is
+      --  exact; every other reciprocal is the double 1.0/x.
       if Len = 1 then
+         if Is_Fixnum (Arr (1)) then
+            Get_Fixnum (Arr (1), Acc, Good);
+            if not Good then
+               return;
+            end if;
+            if Acc = 0 then
+               Status := Error_Division_By_Zero;
+               return;
+            end if;
+            if Acc = 1 or else Acc = -1 then
+               Result := From_Fixnum (Acc);
+               Status := No_Error;
+               return;
+            end if;
+            Acc_F := 1.0;
+            Div_Float (Acc_F, Long_Float (Acc), Status);
+            if Status /= No_Error then
+               return;
+            end if;
+            Result := From_Flonum (Acc_F);
+            Status := No_Error;
+            return;
+         elsif Is_Flonum (Arr (1)) then
+            Acc_F := 1.0;
+            Div_Float (Acc_F, Arr (1).F, Status);
+            if Status /= No_Error then
+               return;
+            end if;
+            Result := From_Flonum (Acc_F);
+            Status := No_Error;
+            return;
+         else
+            return;
+         end if;
+      end if;
+
+      --  Chain: fold left.  Exact while every step divides evenly, then
+      --  continue in double precision for the rest of the operands.  The
+      --  earlier version returned at the first inexact step, silently
+      --  dropping the remaining terms.
+      if Is_Fixnum (Arr (1)) then
          Get_Fixnum (Arr (1), Acc, Good);
          if not Good then
             return;
          end if;
-         if Acc = 0 then
-            Status := Error_Division_By_Zero;
-            return;
-         end if;
-         if Acc = 1 or else Acc = -1 then
-            Result := From_Fixnum (Acc);
-            Status := No_Error;
-            return;
-         end if;
-         --  The reciprocal of anything else is inexact in v1; the divisor
-         --  has magnitude at least one, which is the branch that proves.
-         Acc_F := 1.0 / Long_Float (Acc);
-         Result := From_Flonum (Acc_F);
-         Status := No_Error;
+         Exact := True;
+      elsif Is_Flonum (Arr (1)) then
+         Acc_F := Arr (1).F;
+         Exact := False;
+      else
          return;
       end if;
 
-      --  Chain: start from the first operand and fold.
-      Get_Fixnum (Arr (1), Acc, Good);
-      if not Good then
-         --  A flonum operand: the whole chain is inexact.
-         if not Is_Number (Arr (1)) then
-            return;
-         end if;
-         Acc_F := As_Float (Arr (1));
-         for I in 2 .. Len loop
-            pragma Loop_Invariant (Len <= Arr'Length);
-            if not Is_Number (Arr (I)) then
-               return;
-            end if;
-            Term_F := As_Float (Arr (I));
-            if not In_Range (Acc_F) or else not In_Range (Term_F) then
-               Status := Error_Overflow;
-               return;
-            end if;
-            if Term_F = 0.0 then
-               Status := Error_Division_By_Zero;
-               return;
-            end if;
-            if abs Term_F >= 1.0
-              or else (abs Acc_F <= 1.0E300
-                       and then abs Term_F >= 1.0E-8)
-            then
-               Acc_F := Acc_F / Term_F;
-            else
-               Status := Error_Overflow;
-               return;
-            end if;
-         end loop;
-         Result := From_Flonum (Acc_F);
-         Status := No_Error;
-         return;
-      end if;
-
-      --  All fixnums so far: divide exactly where possible.
       for I in 2 .. Len loop
          pragma Loop_Invariant (Len <= Arr'Length);
-         if Any_Flonum (Arr, Len) then
-            --  A later flonum makes the whole chain inexact: restart from
-            --  the accumulator as a double.
-            Acc_F := Long_Float (Acc);
-            for J in I .. Len loop
-               if not Is_Number (Arr (J)) then
+         pragma Loop_Invariant (H.Ready);
+         if not Is_Number (Arr (I)) then
+            return;
+         end if;
+         if Exact then
+            if Is_Fixnum (Arr (I)) then
+               Get_Fixnum (Arr (I), Term, Good);
+               if not Good then
                   return;
                end if;
-               Term_F := As_Float (Arr (J));
-               if not In_Range (Acc_F) or else not In_Range (Term_F) then
-                  Status := Error_Overflow;
-                  return;
-               end if;
-               if Term_F = 0.0 then
+               if Term = 0 then
                   Status := Error_Division_By_Zero;
                   return;
                end if;
-               if abs Term_F >= 1.0
-                 or else (abs Acc_F <= 1.0E300
-                          and then abs Term_F >= 1.0E-8)
-               then
-                  Acc_F := Acc_F / Term_F;
-               else
-                  Status := Error_Overflow;
+               Div_Guard (Acc, Term, Status);
+               if Status /= No_Error then
                   return;
                end if;
-            end loop;
-            Result := From_Flonum (Acc_F);
-            Status := No_Error;
-            return;
-         end if;
-         Get_Fixnum (Arr (I), Term, Good);
-         if not Good then
-            return;
-         end if;
-         if Term = 0 then
-            Status := Error_Division_By_Zero;
-            return;
-         end if;
-         Div_Guard (Acc, Term, Status);
-         if Status /= No_Error then
-            return;
-         end if;
-         if Acc mod Term = 0 then
-            Acc := Acc / Term;
+               if Acc mod Term = 0 then
+                  Acc := Acc / Term;
+               else
+                  Acc_F := Long_Float (Acc) / Long_Float (Term);
+                  Exact := False;
+               end if;
+            else
+               --  First flonum: continue as a double chain.
+               Acc_F := Long_Float (Acc);
+               Term_F := As_Float (Arr (I));
+               Div_Float (Acc_F, Term_F, Status);
+               if Status /= No_Error then
+                  return;
+               end if;
+               Exact := False;
+            end if;
          else
-            --  Not exact: fall back to the double quotient, where the
-            --  divisor's magnitude (at least one) keeps the branch provable.
-            Acc_F := Long_Float (Acc) / Long_Float (Term);
-            Result := From_Flonum (Acc_F);
-            Status := No_Error;
-            return;
+            Term_F := As_Float (Arr (I));
+            Div_Float (Acc_F, Term_F, Status);
+            if Status /= No_Error then
+               return;
+            end if;
          end if;
       end loop;
 
-      Result := From_Fixnum (Integer_64 (Acc));
+      if Exact then
+         Result := From_Fixnum (Integer_64 (Acc));
+      else
+         Result := From_Flonum (Acc_F);
+      end if;
       Status := No_Error;
    end Div_Prim;
 
@@ -4138,7 +4229,6 @@ is
       X, Y   : Character;
    begin
       Cmp := 0;
-      Ok := False;
       String_Cell (H, A, CA, Ok);
       if not Ok then
          return;
@@ -4399,7 +4489,7 @@ is
       Cur  : Value;
       Node : Cell;
       Hd   : Handle;
-      Left : Natural := Max_List_Length + 1;
+      Left : Natural;
    begin
       Result := Void_Value;
       Status := Error_Type;
@@ -4699,7 +4789,7 @@ is
          when P_Null_P | P_Pair_P | P_Not | P_String_P | P_Vector_P
            | P_Bytevector_P | P_Port_P | P_Eof_Object_P
            | P_Boolean_P | P_Symbol_P | P_Char_P | P_Number_P
-           | P_Procedure_P =>
+           | P_Procedure_P | P_Values_P =>
             Predicate (H, Args, P, Result, Status);
 
          when P_Eq_P =>

@@ -4,9 +4,9 @@
 
 M0–M5 are complete and the v1 scope below is implemented: the verified core,
 REPL and script runner, the C ABI subset, the conformance suites, and the
-mark-sweep reachability proof.  The gate is green at 3,601 checks (level 4,
+mark-sweep reachability proof.  The gate is green at 3,963 checks (level 4,
 5 s per check, `--checks-as-errors`), with no unproved, justified or assumed
-checks and 48 green suites (each also run under stress GC).
+checks and 47 green suites (each also run under stress GC).
 
 Design decisions taken along the way are recorded in `docs/findings.md`; the
 ones that shape the code most are the product-safe fixnum range
@@ -99,8 +99,9 @@ not declared as a crate dependency, so `alr build` requires only GNAT and GPR.
   symbol chunks, string chunks, vector chunks, bytevector chunks, procedures.
 - Handles are index + generation. A stale handle is an error, not memory
   corruption. The engine owns the cell array.
-- Mark-sweep GC: explicit roots (machine state, global environment, symbol
-  table, constants, ports, temporary roots), mark stack and free list.
+- Mark-sweep GC: the CEK state and global environment are the complete root
+  set at a safe point; symbols are interned by scanning, ports carry text
+  inline, and there is no separate constants table.
 - Restricted `call/cc`: escape frame valid only within its dynamic extent.
 - Environments: association-list frames with a parent handle.
 - Ports: string ports in `tr7`; `tr7i` loads files into strings and prints
@@ -147,7 +148,7 @@ not declared as a crate dependency, so `alr build` requires only GNAT and GPR.
 | M4 | 2 weeks | String ports, REPL, C ABI subset + generated stubs, core test suite -- **complete**: string ports (`tests/ports.scm`), the REPL, the C ABI (six contracted entry points, 177 generated stubs, `tests/abi_demo.c`) and 44 test runs |
 | M5 | 2-3 weeks | Mark-sweep GC proof, Gold hardening, contracts, benchmarks, report -- **complete**: `Tr7.Reach` proves reachable cells are marked and the sweep never frees them, the collector is split into epoch jump / worklist drain / read-only verification / sweep, and the gate is green with zero unproved checks |
 
-Size: about 11.5k lines of Ada in `tr7/src`, plus the REPL, C ABI, generated
+Size: about 15k lines of Ada in `tr7/src`, plus the REPL, C ABI, generated
 stubs and tests.
 
 ## Proof practices adopted from the Ironclad campaign

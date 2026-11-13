@@ -69,6 +69,7 @@ is
          when Error_Range           => return "value out of range";
          when Error_User            => return "user error";
          when Error_Continuation    => return "continuation expired";
+         when Error_Env_Depth       => return "environment too deep";
       end case;
    end Error_Name;
 

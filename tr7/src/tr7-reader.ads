@@ -13,7 +13,7 @@ package Tr7.Reader with
    SPARK_Mode => On
 is
 
-   type Read_Status is (Read_Ok, Read_End, Read_Error);
+   type Read_Status is (Read_Ok, Read_End, Read_Error, Read_Heap_Full);
 
    --  Parse a decimal token.  Is_Float says whether the text has the shape
    --  of a number at all (a false answer sends the token on to become a

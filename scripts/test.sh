@@ -12,11 +12,16 @@ status=0
 stamp() { date +%s%N; }
 elapsed_ms() { echo $(( ($2 - $1) / 1000000 )); }
 
-suites="smoke primitives core macro bad-macro bad-eval errors arity gc forms malformed cond bad-cond case bad-case strings index vectors vindex bytevectors bvindex brange lists numbers numovf defs defbad apply map qq bad-qq do bad-do flonums ports bad-ports div error bad-error values bad-values callcc bad-callcc wind bad-wind"
+suites="smoke primitives core macro bad-macro bad-eval bad-cycle bad-map errors arity gc forms malformed cond bad-cond case bad-case strings index vectors vindex bytevectors bvindex brange lists numbers numovf defs defbad apply map qq bad-qq do bad-do flonums ports bad-ports div error bad-error values bad-values callcc bad-callcc wind bad-wind"
 
 for suite in $suites; do
    t0=$(stamp)
-   "$root/tr7i/bin/tr7i" "$root/tests/$suite.scm" > "/tmp/tr7-$suite.out"
+   if ! timeout 30 "$root/tr7i/bin/tr7i" "$root/tests/$suite.scm" > "/tmp/tr7-$suite.out"; then
+      t1=$(stamp)
+      echo "test: $suite FAILED (timeout or crash, $(elapsed_ms "$t0" "$t1") ms)" >&2
+      status=1
+      continue
+   fi
    t1=$(stamp)
    if diff -u "$root/tests/$suite.expected" "/tmp/tr7-$suite.out"; then
       echo "test: $suite ok ($(elapsed_ms "$t0" "$t1") ms)"
@@ -34,7 +39,12 @@ for suite in $suites; do
       gc) continue ;;
    esac
    t0=$(stamp)
-   "$root/tr7i/bin/tr7i" --stress-gc "$root/tests/$suite.scm" > "/tmp/tr7-$suite-stress.out"
+   if ! timeout 30 "$root/tr7i/bin/tr7i" --stress-gc "$root/tests/$suite.scm" > "/tmp/tr7-$suite-stress.out"; then
+      t1=$(stamp)
+      echo "test: $suite (stress) FAILED (timeout or crash, $(elapsed_ms "$t0" "$t1") ms)" >&2
+      status=1
+      continue
+   fi
    t1=$(stamp)
    if diff -u "$root/tests/$suite.expected" "/tmp/tr7-$suite-stress.out"; then
       echo "test: $suite (stress) ok ($(elapsed_ms "$t0" "$t1") ms)"
@@ -47,12 +57,28 @@ done
 #  The allocation-heavy gc suite with a collection on a fixed cadence.  If this takes more than
 #  a few seconds, something in the collector or an invariant has regressed.
 t0=$(stamp)
-"$root/tr7i/bin/tr7i" --stress-gc "$root/tests/gc.scm" > /tmp/tr7-gc-stress.out
+if ! timeout 60 "$root/tr7i/bin/tr7i" --stress-gc "$root/tests/gc.scm" > /tmp/tr7-gc-stress.out; then
+   t1=$(stamp)
+   echo "test: gc (stress) FAILED (timeout or crash, $(elapsed_ms "$t0" "$t1") ms)" >&2
+   exit 1
+fi
 t1=$(stamp)
 if diff -u "$root/tests/gc.expected" /tmp/tr7-gc-stress.out; then
    echo "test: gc (stress) ok ($(elapsed_ms "$t0" "$t1") ms)"
 else
    echo "test: gc (stress) FAILED ($(elapsed_ms "$t0" "$t1") ms)" >&2
+   status=1
+fi
+
+#  A source line longer than the old 4 KiB line buffer must not be split.
+python3 - <<'PY_LONG'
+open("/tmp/tr7-longline.scm", "w").write(";" + "x" * 5000 + "\n(display 1)(newline)\n")
+open("/tmp/tr7-crlf.scm", "w").write("(display 2)(newline)\r\n")
+PY_LONG
+if [ "$("$root/tr7i/bin/tr7i" /tmp/tr7-longline.scm)" = "1" ]    && [ "$("$root/tr7i/bin/tr7i" /tmp/tr7-crlf.scm)" = "2" ]; then
+   echo "test: long source line + CRLF ok"
+else
+   echo "test: long source line + CRLF FAILED" >&2
    status=1
 fi
 

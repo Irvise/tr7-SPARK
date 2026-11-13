@@ -134,11 +134,11 @@ is
    end Define;
 
    procedure Set
-     (H   : in out Heap_Type;
-      Env : Handle;
-      Sym : Value;
-      Val : Value;
-      Ok  : out Boolean)
+     (H      : in out Heap_Type;
+      Env    : Handle;
+      Sym    : Value;
+      Val    : Value;
+      Status : out Error_Code)
    is
       Cur_Env : Handle := Env;
       E       : Cell;
@@ -146,36 +146,42 @@ is
       Found   : Boolean;
       Bind    : Handle;
    begin
-      Ok := False;
       for Depth in 0 .. Max_Env_Depth loop
          pragma Loop_Invariant (H.Ready);
          pragma Loop_Invariant (H.Free_Count = H.Free_Count'Loop_Entry);
+         if Cur_Env = Null_Handle then
+            Status := Error_Unbound;
+            return;
+         end if;
          Environment_Cell (H, Cur_Env, E, Valid);
          if not Valid then
+            Status := Error_Type;
             return;
          end if;
 
          Find_In_Frame (H, E.Car, Sym, Bind, Found, Valid);
          if not Valid then
+            Status := Error_Type;
             return;
          end if;
 
          if Found then
             Set_Cdr (H, Bind, Val, Valid);
-            Ok := Valid;
+            Status := (if Valid then No_Error else Error_Type);
             return;
          end if;
 
          Cur_Env := E.Env;
       end loop;
+      Status := Error_Env_Depth;
    end Set;
 
    procedure Lookup
-     (H   : Heap_Type;
-      Env : Handle;
-      Sym : Value;
-      Val : out Value;
-      Ok  : out Boolean)
+     (H      : Heap_Type;
+      Env    : Handle;
+      Sym    : Value;
+      Val    : out Value;
+      Status : out Error_Code)
    is
       Cur_Env : Handle := Env;
       E       : Cell;
@@ -185,29 +191,37 @@ is
       Bind    : Handle;
    begin
       Val := Nil_Value;
-      Ok := False;
       for Depth in 0 .. Max_Env_Depth loop
+         pragma Loop_Invariant (H.Ready);
+         if Cur_Env = Null_Handle then
+            Status := Error_Unbound;
+            return;
+         end if;
          Environment_Cell (H, Cur_Env, E, Valid);
          if not Valid then
+            Status := Error_Type;
             return;
          end if;
 
          Find_In_Frame (H, E.Car, Sym, Bind, Found, Valid);
          if not Valid then
+            Status := Error_Type;
             return;
          end if;
          if Found then
             Fetch (H, Bind, B, Valid);
             if not Valid or else B.Kind /= Cell_Pair then
+               Status := Error_Type;
                return;
             end if;
             Val := B.Cdr;
-            Ok := True;
+            Status := No_Error;
             return;
          end if;
 
          Cur_Env := E.Env;
       end loop;
+      Status := Error_Env_Depth;
    end Lookup;
 
 end Tr7.Env;

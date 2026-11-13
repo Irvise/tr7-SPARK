@@ -6,6 +6,7 @@
 --  offsets without changing the evaluator interface.
 
 with Tr7.Heap; use Tr7.Heap;
+with Tr7.Runtime; use Tr7.Runtime;
 with Tr7.Values; use Tr7.Values;
 
 package Tr7.Env with
@@ -32,21 +33,21 @@ is
        Post => H.Ready;
 
    procedure Set
-     (H   : in out Heap_Type;
-      Env : Handle;
-      Sym : Value;
-      Val : Value;
-      Ok  : out Boolean)
+     (H      : in out Heap_Type;
+      Env    : Handle;
+      Sym    : Value;
+      Val    : Value;
+      Status : out Error_Code)
      with
        Pre  => H.Ready,
        Post => H.Ready;
 
    procedure Lookup
-     (H   : Heap_Type;
-      Env : Handle;
-      Sym : Value;
-      Val : out Value;
-      Ok  : out Boolean)
+     (H      : Heap_Type;
+      Env    : Handle;
+      Sym    : Value;
+      Val    : out Value;
+      Status : out Error_Code)
      with Pre => H.Ready;
 
 end Tr7.Env;

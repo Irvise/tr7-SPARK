@@ -385,12 +385,12 @@ is
      --  needed: the caller keeps every fact it had about the heap.
      with Pre => H.Ready
    is
-      Val : Value;
-      Ok  : Boolean;
+      Val    : Value;
+      Status : Error_Code;
    begin
-      Tr7.Env.Lookup (H, M.Env, M.Ctl, Val, Ok);
-      if not Ok then
-         Fail (M, Error_Unbound);
+      Tr7.Env.Lookup (H, M.Env, M.Ctl, Val, Status);
+      if Status /= No_Error then
+         Fail (M, Status);
          return;
       end if;
       M.Result := Val;
@@ -1358,6 +1358,7 @@ is
       Test_Expr : Value;
       F         : Frame;
       Good      : Boolean;
+      Left      : Natural := Max_List_Length + 1;
    begin
       Cadr_Of (H, Form, Bindings, Good);
       if not Good then
@@ -1382,9 +1383,9 @@ is
 
       Acc := Nil_Value;
       Elem := Bindings;
-      loop
+      while not Is_Nil (Elem) and then Left > 0 loop
          pragma Loop_Invariant (H.Ready);
-         exit when Is_Nil (Elem);
+         pragma Loop_Variant (Decreases => Left);
          declare
             Cur : Value;
          begin
@@ -1417,8 +1418,13 @@ is
                return;
             end if;
             Elem := Cur;
+            Left := Left - 1;
          end;
       end loop;
+      if not Is_Nil (Elem) then
+         Fail (M, Error_Malformed);
+         return;
+      end if;
       Reverse_List (H, Acc, Rev, Good);
       if not Good then
          Fail (M, Error_Malformed);
@@ -1476,6 +1482,7 @@ is
       V_C      : Cell;
       F        : Frame;
       Good     : Boolean;
+      Left     : Natural;
    begin
       Form := M.Ctl;
 
@@ -1508,9 +1515,10 @@ is
       First_Init := Nil_Value;
       First      := True;
       Elem := Bindings;
-      loop
+      Left := Max_List_Length + 1;
+      while not Is_Nil (Elem) and then Left > 0 loop
          pragma Loop_Invariant (H.Ready);
-         exit when Is_Nil (Elem);
+         pragma Loop_Variant (Decreases => Left);
          Car_Of (H, Elem, Bnd, Good);
          if not Good then
             Fail (M, Error_Malformed);
@@ -1541,7 +1549,12 @@ is
             return;
          end if;
          Elem := Next;
+         Left := Left - 1;
       end loop;
+      if not Is_Nil (Elem) then
+         Fail (M, Error_Malformed);
+         return;
+      end if;
 
       Tr7.Env.New_Environment (H, M.Env, New_Env, Good);
       if not Good then
@@ -1673,8 +1686,20 @@ is
       Datum   : Value;
       Match   : Boolean;
       Good    : Boolean;
+      Proc    : Value;
+      Tail2   : Value;
+      F       : Frame;
+      Left    : Natural := Max_List_Length + 1;
+      Left_D  : Natural;
    begin
       loop
+         pragma Loop_Invariant (H.Ready);
+         pragma Loop_Variant (Decreases => Left);
+         if Left = 0 then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Left := Left - 1;
          if Is_Nil (Pending) then
             M.Result := Unspecified_Value;
             M.Mode := Mode_Return;
@@ -1702,6 +1727,45 @@ is
             return;
          end if;
 
+         --  ((datum ...) => proc): evaluate proc and apply it to the key,
+         --  exactly as cond's => clause does.
+         if not Is_Nil (Forms) then
+            Car_Of (H, Forms, Proc, Good);
+            if not Good then
+               Fail (M, Error_Malformed);
+               return;
+            end if;
+            if Is_Symbol_Named (H, Proc, "=>") then
+               Cdr_Of (H, Forms, Tail2, Good);
+               if not Good or else Is_Nil (Tail2) then
+                  Fail (M, Error_Malformed);
+                  return;
+               end if;
+               Car_Of (H, Tail2, Proc, Good);
+               if not Good then
+                  Fail (M, Error_Malformed);
+                  return;
+               end if;
+               Cdr_Of (H, Tail2, Next, Good);
+               if not Good or else not Is_Nil (Next) then
+                  Fail (M, Error_Malformed);
+                  return;
+               end if;
+               F := (Kind => K_Cond_App,
+                     Alt  => Key,
+                     Env  => Env,
+                     others => <>);
+               Push (M, F, Good);
+               if not Good then
+                  Fail (M, Error_Step_Limit);
+                  return;
+               end if;
+               M.Ctl := Proc;
+               M.Mode := Mode_Eval;
+               return;
+            end if;
+         end if;
+
          if Is_Symbol_Named (H, Datums, "else") then
             if not Is_Nil (Rest) then
                Fail (M, Error_Malformed);
@@ -1713,7 +1777,10 @@ is
 
          Cur := Datums;
          Match := False;
-         while not Is_Nil (Cur) loop
+         Left_D := Max_List_Length + 1;
+         while not Is_Nil (Cur) and then Left_D > 0 loop
+            pragma Loop_Invariant (H.Ready);
+            pragma Loop_Variant (Decreases => Left_D);
             Car_Of (H, Cur, Datum, Good);
             if not Good then
                Fail (M, Error_Malformed);
@@ -1729,7 +1796,12 @@ is
                return;
             end if;
             Cur := Next;
+            Left_D := Left_D - 1;
          end loop;
+         if not Match and then not Is_Nil (Cur) then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
 
          if Match then
             if Is_Nil (Forms) then
@@ -1767,12 +1839,13 @@ is
       Rest    : Value;
       New_Acc : Value;
       Good    : Boolean;
+      Left    : Natural := Max_List_Length + 1;
    begin
       Reversed := Nil_Value;
       Ok := False;
-      loop
+      while not Is_Nil (Cur) and then Left > 0 loop
          pragma Loop_Invariant (H.Ready);
-         exit when Is_Nil (Cur);
+         pragma Loop_Variant (Decreases => Left);
          if not Is_Handle (Cur) then
             return;
          end if;
@@ -1803,7 +1876,11 @@ is
             return;
          end if;
          Cur := Rest;
+         Left := Left - 1;
       end loop;
+      if not Is_Nil (Cur) then
+         return;
+      end if;
 
       Reversed := Acc;
       Ok := True;
@@ -1829,20 +1906,27 @@ is
       Temp   : Value;
       Proc   : Value;
       Good   : Boolean;
-      Empty  : Boolean := False;
+      Empty  : Boolean;
+      Saw_Empty : Boolean := False;
+      Saw_Some  : Boolean := False;
+      Left   : Natural := Max_List_Length + 1;
       Is_Map : constant Boolean :=
         State.Alt.Kind = Kind_Boolean and then State.Alt.B;
    begin
-      --  Any list running out finishes the round.
-      while not Is_Nil (Cur) loop
+      --  All lists must end together; a shorter list is an error rather
+      --  than a silent truncation.
+      while not Is_Nil (Cur) and then Left > 0 loop
+         pragma Loop_Invariant (H.Ready);
+         pragma Loop_Variant (Decreases => Left);
          Car_Of (H, Cur, L, Good);
          if not Good then
             Fail (M, Error_Malformed);
             return;
          end if;
          if Is_Nil (L) then
-            Empty := True;
-            exit;
+            Saw_Empty := True;
+         else
+            Saw_Some := True;
          end if;
          Cdr_Of (H, Cur, Rest, Good);
          if not Good then
@@ -1850,7 +1934,17 @@ is
             return;
          end if;
          Cur := Rest;
+         Left := Left - 1;
       end loop;
+      if not Is_Nil (Cur) then
+         Fail (M, Error_Malformed);
+         return;
+      end if;
+      if Saw_Empty and then Saw_Some then
+         Fail (M, Error_Type);
+         return;
+      end if;
+      Empty := Saw_Empty;
 
       if Empty then
          if Is_Map then
@@ -1917,7 +2011,7 @@ is
       Rest_Code  : Value;
       Producer   : Value;
       Consumer   : Value;
-      Nil_List   : Value := Nil_Value;
+      Nil_List   : constant Value := Nil_Value;
       Item       : Value;
       Item2      : Value;
       Good       : Boolean;
@@ -2010,6 +2104,288 @@ is
       Ok := True;
    end Let_Values_To_Code;
 
+   --  Named let:
+   --    (let name ((v init) ...) body ...)
+   --  becomes
+   --    ((lambda (name)
+   --       (set! name (lambda (v ...) body ...))
+   --       (name init ...))
+   --     #f)
+   --  which gives the recursive binding without a new frame kind.
+   --  let* is rewritten to nested lets so every binding gets its own
+   --  environment frame.  Sharing one frame made a later duplicate binding
+   --  overwrite the earlier one, so a closure created before the rebinding
+   --  saw the new value.
+   procedure Let_Star_To_Code
+     (H        : in out Heap_Type;
+      Bindings : Value;
+      Body_F : Value;
+      Result   : out Value;
+      Ok       : out Boolean;
+      Fuel     : Natural)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready,
+       Subprogram_Variant => (Decreases => Fuel)
+   is
+      Let_Sym  : Value;
+      Begin_Sym : Value;
+      Bnd      : Value;
+      Var      : Value;
+      Init     : Value;
+      Rest     : Value;
+      Rest_Code : Value;
+      Binding  : Value;
+      Bindings1 : Value;
+      Item     : Value;
+      Tmp      : Value;
+      Good     : Boolean;
+   begin
+      Result := Nil_Value;
+      Ok := False;
+      if Fuel = 0 then
+         return;
+      end if;
+      Intern (H, "begin", Begin_Sym, Good);
+      if not Good then
+         return;
+      end if;
+      if Is_Nil (Bindings) then
+         Cons (H, Begin_Sym, Body_F, Result, Ok);
+         return;
+      end if;
+      Intern (H, "let", Let_Sym, Good);
+      if not Good then
+         return;
+      end if;
+      Car_Of (H, Bindings, Bnd, Good);
+      if not Good or else not Is_Handle (Bnd) then
+         return;
+      end if;
+      Car_Of (H, Bnd, Var, Good);
+      if not Good or else not Is_Handle (Var) then
+         return;
+      end if;
+      declare
+         VC : Cell;
+      begin
+         Fetch (H, To_Handle (Var), VC, Good);
+         if not Good or else VC.Kind /= Cell_Symbol then
+            return;
+         end if;
+      end;
+      Cadr_Of (H, Bnd, Init, Good);
+      if not Good then
+         return;
+      end if;
+      Cdr_Of (H, Bindings, Rest, Good);
+      if not Good then
+         return;
+      end if;
+      --  ((var init))
+      Cons (H, Init, Nil_Value, Tmp, Good);
+      if not Good then
+         return;
+      end if;
+      Cons (H, Var, Tmp, Binding, Good);
+      if not Good then
+         return;
+      end if;
+      Cons (H, Binding, Nil_Value, Bindings1, Good);
+      if not Good then
+         return;
+      end if;
+      Let_Star_To_Code (H, Rest, Body_F, Rest_Code, Good, Fuel - 1);
+      if not Good then
+         return;
+      end if;
+      --  (let ((var init)) rest-code)
+      Cons (H, Rest_Code, Nil_Value, Tmp, Good);
+      if not Good then
+         return;
+      end if;
+      Cons (H, Bindings1, Tmp, Item, Good);
+      if not Good then
+         return;
+      end if;
+      Cons (H, Let_Sym, Item, Result, Good);
+      if Good then
+         Ok := True;
+      end if;
+   end Let_Star_To_Code;
+
+   procedure Named_Let_To_Code
+     (H      : in out Heap_Type;
+      Form   : Value;
+      Result : out Value;
+      Ok     : out Boolean)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Lambda_Sym : Value;
+      Set_Sym    : Value;
+      Rest       : Value;
+      Tail       : Value;
+      Name       : Value;
+      Bindings   : Value;
+      Body_Forms : Value;
+      Cur        : Value;
+      Bnd        : Value;
+      Var        : Value;
+      Init       : Value;
+      NC         : Cell;
+      Formals    : Value;
+      Inits      : Value;
+      F_Rev      : Value := Nil_Value;
+      I_Rev      : Value := Nil_Value;
+      Tmp        : Value;
+      Tmp2       : Value;
+      Tmp3       : Value;
+      Rec_Lambda : Value;
+      Call_Form  : Value;
+      App        : Value;
+      Left       : Natural := Max_List_Length + 1;
+      Good       : Boolean;
+   begin
+      Result := Nil_Value;
+      Ok := False;
+      Cdr_Of (H, Form, Rest, Good);
+      if not Good or else Is_Nil (Rest) then
+         return;
+      end if;
+      Car_Of (H, Rest, Name, Good);
+      if not Good or else not Is_Handle (Name) then
+         return;
+      end if;
+      Fetch (H, To_Handle (Name), NC, Good);
+      if not Good or else NC.Kind /= Cell_Symbol then
+         return;
+      end if;
+      Cdr_Of (H, Rest, Tail, Good);
+      if not Good or else Is_Nil (Tail) then
+         return;
+      end if;
+      Car_Of (H, Tail, Bindings, Good);
+      if not Good then
+         return;
+      end if;
+      Cdr_Of (H, Tail, Body_Forms, Good);
+      if not Good or else Is_Nil (Body_Forms) then
+         return;
+      end if;
+
+      Cur := Bindings;
+      while not Is_Nil (Cur) and then Left > 0 loop
+         pragma Loop_Invariant (H.Ready);
+         pragma Loop_Variant (Decreases => Left);
+         Car_Of (H, Cur, Bnd, Good);
+         if not Good or else not Is_Handle (Bnd) then
+            return;
+         end if;
+         Car_Of (H, Bnd, Var, Good);
+         if not Good or else not Is_Handle (Var) then
+            return;
+         end if;
+         declare
+            VC : Cell;
+         begin
+            Fetch (H, To_Handle (Var), VC, Good);
+            if not Good or else VC.Kind /= Cell_Symbol then
+               return;
+            end if;
+         end;
+         Cadr_Of (H, Bnd, Init, Good);
+         if not Good then
+            return;
+         end if;
+         Cons (H, Var, F_Rev, Tmp, Good);
+         if not Good then
+            return;
+         end if;
+         F_Rev := Tmp;
+         Cons (H, Init, I_Rev, Tmp, Good);
+         if not Good then
+            return;
+         end if;
+         I_Rev := Tmp;
+         declare
+            Next : Value;
+         begin
+            Cdr_Of (H, Cur, Next, Good);
+            if not Good then
+               return;
+            end if;
+            Cur := Next;
+         end;
+         Left := Left - 1;
+      end loop;
+      if not Is_Nil (Cur) then
+         return;
+      end if;
+      Reverse_List (H, F_Rev, Formals, Good);
+      if not Good then
+         return;
+      end if;
+      Reverse_List (H, I_Rev, Inits, Good);
+      if not Good then
+         return;
+      end if;
+
+      Intern (H, "lambda", Lambda_Sym, Good);
+      if not Good then
+         return;
+      end if;
+      Intern (H, "letrec", Set_Sym, Good);
+      if not Good then
+         return;
+      end if;
+
+      --  (lambda (v ...) body ...)
+      Cons (H, Formals, Body_Forms, Tmp, Good);
+      if not Good then
+         return;
+      end if;
+      Cons (H, Lambda_Sym, Tmp, Rec_Lambda, Good);
+      if not Good then
+         return;
+      end if;
+      --  (name rec-lambda)
+      Cons (H, Rec_Lambda, Nil_Value, Tmp, Good);
+      if not Good then
+         return;
+      end if;
+      Cons (H, Name, Tmp, Tmp2, Good);
+      if not Good then
+         return;
+      end if;
+      --  ((name rec-lambda))
+      Cons (H, Tmp2, Nil_Value, Tmp, Good);
+      if not Good then
+         return;
+      end if;
+      --  (name init ...)
+      Cons (H, Name, Inits, Call_Form, Good);
+      if not Good then
+         return;
+      end if;
+      --  (letrec ((name rec-lambda)) (name init ...))
+      Cons (H, Call_Form, Nil_Value, Tmp2, Good);
+      if not Good then
+         return;
+      end if;
+      Cons (H, Tmp, Tmp2, Tmp3, Good);
+      if not Good then
+         return;
+      end if;
+      Cons (H, Set_Sym, Tmp3, App, Good);
+      if not Good then
+         return;
+      end if;
+      Result := App;
+      Ok := True;
+   end Named_Let_To_Code;
+
    procedure Eval_Pair
      (H : in out Heap_Type;
       M : in out Machine)
@@ -2047,9 +2423,14 @@ is
          Cadr_Of (H, M.Ctl, M.Result, Good);
          if not Good then
             Fail (M, Error_Malformed);
-         else
-            M.Mode := Mode_Return;
+            return;
          end if;
+         Cddr_Of (H, M.Ctl, Rest, Good);
+         if not Good or else not Is_Nil (Rest) then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         M.Mode := Mode_Return;
          return;
       end if;
 
@@ -2109,6 +2490,11 @@ is
                Fail (M, Error_Malformed);
                return;
             end if;
+            Cdr_Of (H, Tail2, Tail, Good);
+            if not Good or else not Is_Nil (Tail) then
+               Fail (M, Error_Malformed);
+               return;
+            end if;
          end if;
 
          F := (Kind => K_If,
@@ -2133,7 +2519,7 @@ is
             return;
          end if;
          Cddr_Of (H, M.Ctl, Forms, Good);
-         if not Good then
+         if not Good or else Is_Nil (Forms) then
             Fail (M, Error_Malformed);
             return;
          end if;
@@ -2161,6 +2547,15 @@ is
             Fail (M, Error_Malformed);
             return;
          end if;
+         declare
+            NC : Cell;
+         begin
+            Fetch (H, To_Handle (Name), NC, Good);
+            if not Good or else NC.Kind /= Cell_Symbol then
+               Fail (M, Error_Malformed);
+               return;
+            end if;
+         end;
          Caddr_Of (H, M.Ctl, Expr_V, Good);
          if not Good then
             Fail (M, Error_Malformed);
@@ -2294,8 +2689,27 @@ is
             Fail (M, Error_Malformed);
             return;
          end if;
+         declare
+            NC : Cell;
+         begin
+            Fetch (H, To_Handle (Name), NC, Good);
+            if not Good or else NC.Kind /= Cell_Symbol then
+               Fail (M, Error_Malformed);
+               return;
+            end if;
+         end;
          Caddr_Of (H, M.Ctl, Expr_V, Good);
          if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Cddr_Of (H, M.Ctl, Tail, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Cdr_Of (H, Tail, Tail2, Good);
+         if not Good or else not Is_Nil (Tail2) then
             Fail (M, Error_Malformed);
             return;
          end if;
@@ -2400,10 +2814,47 @@ is
       end if;
 
       if Is_Symbol_Named (H, Head, "let") then
+         --  (let name ((v init) ...) body ...) is a named let.  Two-element
+         --  Cdrs distinguish it from the ordinary binding-list form.
+         Cadr_Of (H, M.Ctl, Tmp, Good);
+         if Good and then Is_Handle (Tmp) then
+            declare
+               NC : Cell;
+            begin
+               Fetch (H, To_Handle (Tmp), NC, Good);
+               if Good and then NC.Kind = Cell_Symbol then
+                  Named_Let_To_Code (H, M.Ctl, Tmp, Good);
+                  if not Good then
+                     Fail (M, Error_Malformed);
+                     return;
+                  end if;
+                  M.Ctl := Tmp;
+                  M.Mode := Mode_Eval;
+                  return;
+               end if;
+            end;
+         end if;
          Start_Let (H, M, Let_Parallel);
          return;
       elsif Is_Symbol_Named (H, Head, "let*") then
-         Start_Let (H, M, Let_Sequential);
+         Cadr_Of (H, M.Ctl, Rest, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Cddr_Of (H, M.Ctl, Tail, Good);
+         if not Good or else Is_Nil (Tail) then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Let_Star_To_Code (H, Rest, Tail, Tmp, Good,
+                           Max_List_Length + 1);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         M.Ctl := Tmp;
+         M.Mode := Mode_Eval;
          return;
       elsif Is_Symbol_Named (H, Head, "letrec") then
          Start_Let (H, M, Let_Sequential);
@@ -2825,11 +3276,13 @@ is
       --  itself contain macro uses, handled on subsequent steps.
       if Is_Handle (Head) then
          declare
-            Bound : Value;
-            MC    : Cell;
-            Mok   : Boolean;
+            Bound  : Value;
+            MC     : Cell;
+            Mok    : Boolean;
+            Status : Error_Code;
          begin
-            Lookup (H, M.Env, Head, Bound, Mok);
+            Lookup (H, M.Env, Head, Bound, Status);
+            Mok := Status = No_Error;
             if Mok and then Is_Handle (Bound) then
                Fetch (H, To_Handle (Bound), MC, Mok);
                if Mok and then MC.Kind = Cell_Macro then
@@ -3007,11 +3460,15 @@ is
             M.Mode := Mode_Return;
 
          when K_Set =>
-            Tr7.Env.Set (H, F.Env, F.Sym, M.Result, Good);
-            if not Good then
-               Fail (M, Error_Unbound);
-               return;
-            end if;
+            declare
+               Set_Status : Error_Code;
+            begin
+               Tr7.Env.Set (H, F.Env, F.Sym, M.Result, Set_Status);
+               if Set_Status /= No_Error then
+                  Fail (M, Set_Status);
+                  return;
+               end if;
+            end;
             M.Result := Unspecified_Value;
             M.Mode := Mode_Return;
 
@@ -3756,7 +4213,8 @@ is
       Steps     : Natural := 0;
       --  Counts evaluator steps between stress collections; the subtype makes
       --  the increment below obviously safe.
-      Stress_Due : Natural range 0 .. GC_Stress_Every := GC_Stress_Every;
+      Stress_Due : Natural range 0 .. GC_Stress_Every :=
+        GC_Stress_Every - 1;
    begin
       M.Mode := Mode_Eval;
       M.Ctl := Expr;
@@ -3779,7 +4237,7 @@ is
            or else (H.Stress_GC and then Stress_Due = 0)
          then
             Collect_Garbage (H, Env, M);
-            Stress_Due := GC_Stress_Every;
+            Stress_Due := GC_Stress_Every - 1;
          elsif H.Stress_GC then
             Stress_Due := Stress_Due - 1;
          end if;

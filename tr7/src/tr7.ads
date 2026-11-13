@@ -9,6 +9,8 @@
 --  benchmark binary.  See docs/findings.md for why benchmarking with checks
 --  enabled gives meaningless numbers.
 
-package Tr7 is
+package Tr7 with
+   SPARK_Mode => On
+is
 
 end Tr7;

@@ -19,4 +19,8 @@
 (show (expt 1 -5))
 (show (expt -1 -5))
 (show (expt 5 10))
+(show (expt -1 65))
+(show (expt -1 64))
+(show (remainder -2147483648 -1))
+(show (modulo -2147483648 -1))
 (quotient 1 0)

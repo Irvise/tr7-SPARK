@@ -78,7 +78,7 @@ procedure Tr7i with SPARK_Mode => Off is
       F     : File_Type;
       Buf   : String (1 .. Max_Source);
       Len   : Natural := 0;
-      Line  : String (1 .. Max_Line);
+      Line  : String (1 .. Max_Source);
       Last  : Natural;
    begin
       begin
@@ -90,6 +90,9 @@ procedure Tr7i with SPARK_Mode => Off is
       end;
 
       begin
+         --  Read whole lines.  The line buffer is Max_Source, not the
+         --  REPL's Max_Line: a longer source line must not be split into
+         --  several logical lines.
          while not End_Of_File (F) loop
             Get_Line (F, Line, Last);
             if Len + Last + 1 > Max_Source then

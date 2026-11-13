@@ -33,4 +33,9 @@ if grep -E "(medium:|high:|unproved|failed)" "$log" >/dev/null; then
    exit 1
 fi
 
+if grep -E "[1-9][0-9]* warnings" obj/release/gnatprove/gnatprove.out >/dev/null 2>&1; then
+   echo "prove: FAILED (flow warnings in gnatprove.out)" >&2
+   exit 1
+fi
+
 echo "prove: ok (timeout ${timeout}s)"

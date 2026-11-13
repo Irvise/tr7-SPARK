@@ -48,6 +48,10 @@ is
       --  the bound is structural and the loop needs no claim of its own.
       Len    : Natural range 0 .. 8 := 0;
    begin
+      if N = 0 then
+         Put (B, '0', Ok);
+         return;
+      end if;
       while Len < 8 and then Rest > 0 loop
          Len := Len + 1;
          Buf (Len) := Hex_Chars (Integer (Rest mod 16) + 1);
@@ -417,6 +421,98 @@ is
       Put (B, S (1 .. Len), Ok);
    end Put_Float;
 
+   --  A symbol is printed raw only when it is in the reader's ordinary
+   --  symbol alphabet; otherwise it is bar-quoted, which the reader now
+   --  understands.  The empty symbol and numeric-looking names must be
+   --  quoted or they read back as something else.
+   function Is_Symbol_Char (C : Character) return Boolean is
+     (C in 'a' .. 'z' or else C in 'A' .. 'Z' or else C in '0' .. '9'
+      or else C = '!' or else C = '$' or else C = '%' or else C = '&'
+      or else C = '*' or else C = '+' or else C = '-' or else C = '.'
+      or else C = '/' or else C = ':' or else C = '<' or else C = '='
+      or else C = '>' or else C = '?' or else C = '@' or else C = '^'
+      or else C = '_' or else C = '~');
+
+   function Is_Simple_Symbol (C : Cell) return Boolean is
+      Name : constant String := Text_Of (C);
+   begin
+      if Name'Length = 0 then
+         return False;
+      end if;
+      --  Names that could read as a number, or as a sign/dot prefix of one,
+      --  must be bar-quoted.  Bare +, -, . and ... remain valid symbols.
+      if Name (Name'First) in '0' .. '9' then
+         return False;
+      end if;
+      if Name'Length >= 2
+        and then (Name (Name'First) = '+' or else Name (Name'First) = '-'
+                  or else Name (Name'First) = '.')
+        and then (Name (Name'First + 1) in '0' .. '9'
+                  or else Name (Name'First + 1) = '.')
+      then
+         return False;
+      end if;
+      for I in Name'Range loop
+         if not Is_Symbol_Char (Name (I)) then
+            return False;
+         end if;
+      end loop;
+      return True;
+   end Is_Simple_Symbol;
+
+   procedure Put_Escaped_Char
+     (B  : in out Output_Buffer;
+      C  : Character;
+      Ok : in out Boolean)
+   is
+      Code : constant Natural := Character'Pos (C);
+   begin
+      if C = '"' then
+         Put (B, '\', Ok);
+         Put (B, '"', Ok);
+      elsif C = '\' then
+         Put (B, '\', Ok);
+         Put (B, '\', Ok);
+      elsif C = LF then
+         Put (B, '\', Ok);
+         Put (B, 'n', Ok);
+      elsif C = HT then
+         Put (B, '\', Ok);
+         Put (B, 't', Ok);
+      elsif C = CR then
+         Put (B, '\', Ok);
+         Put (B, 'r', Ok);
+      elsif Code < 32 or else Code = 127 then
+         Put (B, '\', Ok);
+         Put (B, 'x', Ok);
+         Put_Hex (B, Unsigned_32 (Code), Ok);
+         Put (B, ';', Ok);
+      else
+         Put (B, C, Ok);
+      end if;
+   end Put_Escaped_Char;
+
+   procedure Put_Symbol (B : in out Output_Buffer; C : Cell; Ok : in out Boolean)
+   is
+      Name : constant String := Text_Of (C);
+   begin
+      if Is_Simple_Symbol (C) then
+         Put (B, Name, Ok);
+         return;
+      end if;
+      Put (B, '|', Ok);
+      for I in Name'Range loop
+         if Name (I) = '|' or else Name (I) = '\' then
+            Put (B, '\', Ok);
+         end if;
+         Put (B, Name (I), Ok);
+         if not Ok then
+            return;
+         end if;
+      end loop;
+      Put (B, '|', Ok);
+   end Put_Symbol;
+
    procedure Write_Internal
      (H       : Heap_Type;
       V       : Value;
@@ -600,7 +696,7 @@ is
                      Ok := Good;
 
                   when Cell_Symbol =>
-                     Put (B, Text_Of (C), Ok);
+                     Put_Symbol (B, C, Ok);
 
                   when Cell_String =>
                      if Display then
@@ -609,7 +705,7 @@ is
                         Put (B, '"', Ok);
                         for I in 1 .. C.Name_Len loop
                            pragma Loop_Invariant (Ok = Ok'Loop_Entry);
-                           Put (B, C.Name (I), Ok);
+                           Put_Escaped_Char (B, C.Name (I), Ok);
                            if not Ok then
                               return;
                            end if;

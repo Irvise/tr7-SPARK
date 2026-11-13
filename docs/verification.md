@@ -78,7 +78,8 @@ Results, one entry per closed step of the plan:
 | `syntax-rules` subset (literals, ellipsis, recursive macros) | 3,375 |
 | comparisons, string/vector constructors and list utilities | 3,558 |
 | `let-values` / `let*-values` (rewritten to `call-with-values`) | 3,600 |
-| `import` compatibility (accepted, no library system) | **3,601** |
+| `import` compatibility (accepted, no library system) | 3,601 |
+| review follow-up: arithmetic, cycle bounds, reader/writer, eval forms | **3,963** |
 
 Every row is 0 unproved, 0 justified, 0 warnings, with flow, initialization
 and non-aliasing fully proved and a warning-free build.
@@ -98,7 +99,7 @@ instead of asking the prover to reason about a wide multiply.
 
 ## Gold hardening audit (M5)
 
-At the accepted state (2026-11-13, 3,601 checks):
+At the accepted state (2026-11-13, 3,963 checks):
 
 - every unit under `tr7/src` is `SPARK_Mode => On`; `tr7i` and `tr7_c` are the
   documented `SPARK_Mode => Off` trusted boundary;
@@ -114,21 +115,23 @@ Summary by obligation category from `gnatprove.out`:
 
 | category | checks | proved |
 | --- | --- | --- |
-| Initialization | 1,228 | 1,228 |
+| Initialization | 1,327 | 1,327 |
 | Non-Aliasing | 12 | 12 |
-| Run-time Checks | 730 | 730 |
-| Assertions | 362 | 362 |
-| Functional Contracts | 1,156 | 1,156 |
-| Termination | 113 | 113 (68 by flow analysis, 45 by the provers) |
-| **Total** | **3,601** | **3,601** |
+| Run-time Checks | 862 | 862 |
+| Assertions | 402 | 402 |
+| Functional Contracts | 1,229 | 1,229 |
+| Termination | 131 | 131 (70 by flow analysis, 61 by the provers) |
+| **Total** | **3,963** | **3,963** |
 
 ### Contract review
 
-Every public `tr7` operation either carries a Pre/Post pair (heap operations,
-machine and engine entry points, reader/writer, primitives with bounds) or is
-a total expression function whose result needs no precondition (value
-predicates, `Is_Marked`, `Child_Marked`, `Closed_*`, `Reachable`).  The C ABI
-subprograms in `tr7_c` keep their contracts and are documented as trusted
-bodies.  The collector's postcondition states the three closedness facts
-separately and never mentions `Reachable`; the sweep's liveness goal lives in
-`Tr7.Reach` loop invariants, which the policy file compiles away.
+Many public `tr7` operations carry functional contracts (heap operations,
+machine and engine entry points, arithmetic helpers, the collector).  Some
+selectors and accessors are deliberately Pre-only: `Kind_Of`, `Car_Of`,
+`Cdr_Of`, `Lookup` and most constructors constrain safety and readiness, not
+their functional result.  Value predicates and the reachability lattice are
+total expression functions.  The C ABI subprograms in `tr7_c` keep their
+contracts and are documented as trusted bodies.  The collector's postcondition
+states the three closedness facts separately and never mentions `Reachable`;
+the sweep's liveness goal lives in `Tr7.Reach` loop invariants, which the
+policy file compiles away.
