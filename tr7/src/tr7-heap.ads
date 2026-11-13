@@ -105,6 +105,12 @@ is
       C  : out Cell;
       Ok : out Boolean)
      with
+       --  Fetch is on every pair and environment access.  Inlining it lets
+       --  the compiler forward only the fields a caller reads instead of
+       --  materialising the whole Cell (a 256-byte text buffer included);
+       --  measured as a clear win on the interpreter workloads, and the
+       --  proofs are unchanged.
+       Inline => True,
        Pre  => H.Ready,
        Post => (if Ok then Valid_Handle (C, Hd));
 

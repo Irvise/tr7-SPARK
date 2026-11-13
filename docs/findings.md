@@ -523,16 +523,19 @@ is both the faster design and the simpler proof.
 
 Performance after the rewrite (checks off, `scripts/bench.sh`):
 
-| workload | M4 | M5 |
-| --- | --- | --- |
-| 612 collections of an idle heap | 2.3 us each | 7.7 us each |
-| `tests/gc.scm` (3,000-element list, 6,000 tail calls) | 0.11 s | 0.18 s |
-| the same under `--stress-gc` | 2.3 s | 1.1 s |
-| 500 datums of `(display 1)(newline)` | 0.005 s | 0.006 s |
+| workload | M4 | M5 | M5 + inlined `Fetch` |
+| --- | --- | --- | --- |
+| 612 collections of an idle heap | 2.3 us each | 7.7 us each | ~8-10 us each |
+| `tests/gc.scm` (3,000-element list, 6,000 tail calls) | 0.11 s | 0.18 s | 0.09 s |
+| the same under `--stress-gc` | 2.3 s | 1.1 s | 0.95 s |
+| 500 datums of `(display 1)(newline)` | 0.005 s | 0.006 s | 0.005 s |
 
 The idle collection pays for the epoch jump and the read-only verification
 scan (both linear passes the old collector did not have in that form); the
 stress workload is faster because marking no longer copies whole cells.  The
 collector copies only the `Car`/`Cdr`/`Env` fields it needs -- never the
-256-byte text buffer in `Cell` -- on each visit.  Checked-build tests stay in
-the same range: the `gc (stress)` suite takes about 2.4 s.
+256-byte text buffer in `Cell` -- on each visit.  Marking `Fetch` `Inline`
+then lets the compiler do the same at its many call sites (pairs,
+environments, the machine): a caller that reads one field no longer
+materialises a whole `Cell`.  Checked-build tests stay in the same range: the
+`gc (stress)` suite takes about 2.4 s.
