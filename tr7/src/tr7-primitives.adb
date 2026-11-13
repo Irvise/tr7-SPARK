@@ -119,6 +119,25 @@ is
          when P_Even_P             => return "even?";
          when P_Memv               => return "memv";
          when P_Assv               => return "assv";
+         when P_Char_Equal         => return "char=?";
+         when P_Char_Less          => return "char<?";
+         when P_Char_Greater       => return "char>?";
+         when P_Char_Less_Equal    => return "char<=?";
+         when P_Char_Greater_Equal => return "char>=?";
+         when P_String_Less        => return "string<?";
+         when P_String_Greater     => return "string>?";
+         when P_String_Less_Equal  => return "string<=?";
+         when P_String_Greater_Equal => return "string>=?";
+         when P_Make_String        => return "make-string";
+         when P_String_Set         => return "string-set!";
+         when P_Make_Vector        => return "make-vector";
+         when P_Vector_Fill        => return "vector-fill!";
+         when P_List_Tail          => return "list-tail";
+         when P_List_Copy          => return "list-copy";
+         when P_Last_Pair          => return "last-pair";
+         when P_Eqv_P              => return "eqv?";
+         when P_Boolean_Equal      => return "boolean=?";
+         when P_Symbol_Equal       => return "symbol=?";
       end case;
    end Name_Of;
 
@@ -4048,6 +4067,584 @@ is
       Status := No_Error;
    end Numeric_Predicate_Prim;
 
+   procedure Char_Compare_Prim
+     (H      : Heap_Type;
+      Args   : Value;
+      P      : Primitive_Id;
+      Result : out Value;
+      Status : out Error_Code)
+     with Pre => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      Ok   : Boolean := True;
+      A, B : Unsigned_32;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 2, Max_Arguments, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      for I in 1 .. Len loop
+         if Arr (I).Kind /= Kind_Character then
+            return;
+         end if;
+      end loop;
+      for I in 1 .. Len - 1 loop
+         if Arr (I).Kind /= Kind_Character
+           or else Arr (I + 1).Kind /= Kind_Character
+         then
+            return;
+         end if;
+         A := To_Character (Arr (I));
+         B := To_Character (Arr (I + 1));
+         case P is
+            when P_Char_Equal =>
+               Ok := Ok and then A = B;
+            when P_Char_Less =>
+               Ok := Ok and then A < B;
+            when P_Char_Greater =>
+               Ok := Ok and then A > B;
+            when P_Char_Less_Equal =>
+               Ok := Ok and then A <= B;
+            when others =>
+               Ok := Ok and then A >= B;
+         end case;
+      end loop;
+      Result := Bool (Ok);
+      Status := No_Error;
+   end Char_Compare_Prim;
+
+   --  Lexicographic comparison of two string cells.
+   procedure String_Compare
+     (H   : Heap_Type;
+      A   : Value;
+      B   : Value;
+      Cmp : out Integer;
+      Ok  : out Boolean)
+     with
+       Pre  => H.Ready,
+       Post => (if Ok then Cmp in -1 .. 1)
+   is
+      CA, CB : Cell;
+      N      : Natural;
+      X, Y   : Character;
+   begin
+      Cmp := 0;
+      Ok := False;
+      String_Cell (H, A, CA, Ok);
+      if not Ok then
+         return;
+      end if;
+      String_Cell (H, B, CB, Ok);
+      if not Ok then
+         return;
+      end if;
+      N := Natural'Min (CA.Name_Len, CB.Name_Len);
+      for I in 1 .. N loop
+         X := CA.Name (I);
+         Y := CB.Name (I);
+         if X < Y then
+            Cmp := -1;
+            Ok := True;
+            return;
+         elsif X > Y then
+            Cmp := 1;
+            Ok := True;
+            return;
+         end if;
+      end loop;
+      if CA.Name_Len < CB.Name_Len then
+         Cmp := -1;
+      elsif CA.Name_Len > CB.Name_Len then
+         Cmp := 1;
+      end if;
+      Ok := True;
+   end String_Compare;
+
+   procedure String_Compare_Prim
+     (H      : Heap_Type;
+      Args   : Value;
+      P      : Primitive_Id;
+      Result : out Value;
+      Status : out Error_Code)
+     with Pre => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      Ok   : Boolean := True;
+      Cmp  : Integer;
+      This : Boolean;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 2, Max_Arguments, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      for I in 1 .. Len - 1 loop
+         String_Compare (H, Arr (I), Arr (I + 1), Cmp, Good);
+         if not Good then
+            return;
+         end if;
+         case P is
+            when P_String_Less =>
+               This := Cmp < 0;
+            when P_String_Greater =>
+               This := Cmp > 0;
+            when P_String_Less_Equal =>
+               This := Cmp <= 0;
+            when others =>
+               This := Cmp >= 0;
+         end case;
+         Ok := Ok and then This;
+      end loop;
+      Result := Bool (Ok);
+      Status := No_Error;
+   end String_Compare_Prim;
+
+   procedure Make_String_Prim
+     (H      : in out Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      K    : Fixnum;
+      Ch   : Value;
+      Code : Unsigned_32 := Unsigned_32 (Character'Pos (' '));
+      Hd   : Handle;
+      Buf  : String (1 .. Max_Text) := (others => ' ');
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 1, 2, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      Get_Fixnum (Arr (1), K, Good);
+      if not Good or else K < 0 or else K > Max_Text then
+         Status := Error_Range;
+         return;
+      end if;
+      if Len = 2 then
+         Ch := Arr (2);
+         if Ch.Kind /= Kind_Character then
+            Status := Error_Type;
+            return;
+         end if;
+         Code := To_Character (Ch);
+         if Code > 255 then
+            Status := Error_Range;
+            return;
+         end if;
+      end if;
+      for I in 1 .. Natural (K) loop
+         Buf (I) := Character'Val (Integer (Code));
+      end loop;
+      New_String (H, Buf (1 .. Natural (K)), Hd, Good);
+      if not Good then
+         Status := Error_Heap_Full;
+         return;
+      end if;
+      Result := From_Handle (Hd);
+      Status := No_Error;
+   end Make_String_Prim;
+
+   procedure String_Set_Prim
+     (H      : in out Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      C    : Cell;
+      K    : Fixnum;
+      Ch   : Value;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 3, 3, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      String_Cell (H, Arr (1), C, Good);
+      if not Good or else not Is_Handle (Arr (1)) then
+         return;
+      end if;
+      declare
+         Ix : constant Cell_Index := To_Handle (Arr (1)).Index;
+      begin
+         if Ix not in Valid_Cell_Index then
+            return;
+         end if;
+         Get_Fixnum (Arr (2), K, Good);
+         if not Good or else K < 0 or else K >= Fixnum (C.Name_Len) then
+            Status := Error_Index;
+            return;
+         end if;
+         Ch := Arr (3);
+         if Ch.Kind /= Kind_Character or else Ch.C > 255 then
+            Status := Error_Type;
+            return;
+         end if;
+         H.Cells (Ix).Name (Natural (K) + 1) :=
+           Character'Val (Integer (Ch.C));
+      end;
+      Result := Unspecified_Value;
+      Status := No_Error;
+   end String_Set_Prim;
+
+   procedure Make_Vector_Prim
+     (H      : in out Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Arr   : Value_Array;
+      Len   : Natural;
+      Good  : Boolean;
+      K     : Fixnum;
+      Fill  : Value := Unspecified_Value;
+      Acc   : Value := Nil_Value;
+      Item  : Value;
+      Hd    : Handle;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 1, 2, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      Get_Fixnum (Arr (1), K, Good);
+      if not Good or else K < 0 or else K > Max_List_Length then
+         Status := Error_Range;
+         return;
+      end if;
+      if Len = 2 then
+         Fill := Arr (2);
+      end if;
+      for I in 1 .. Natural (K) loop
+         pragma Loop_Invariant (H.Ready);
+         Cons (H, Fill, Acc, Item, Good);
+         if not Good then
+            Status := Error_Heap_Full;
+            return;
+         end if;
+         Acc := Item;
+      end loop;
+      New_Vector (H, Acc, Natural (K), Hd, Good);
+      if not Good then
+         Status := Error_Heap_Full;
+         return;
+      end if;
+      Result := From_Handle (Hd);
+      Status := No_Error;
+   end Make_Vector_Prim;
+
+   procedure Vector_Fill_Prim
+     (H      : in out Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      C    : Cell;
+      Cur  : Value;
+      Node : Cell;
+      Hd   : Handle;
+      Left : Natural := Max_List_Length + 1;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 2, 2, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      Vector_Cell (H, Arr (1), C, Good);
+      if not Good then
+         return;
+      end if;
+      Cur := C.Car;
+      Left := Max_List_Length + 1;
+      while not Is_Nil (Cur) and then Left > 0 loop
+         pragma Loop_Invariant (H.Ready);
+         pragma Loop_Variant (Decreases => Left);
+         if not Is_Handle (Cur) then
+            return;
+         end if;
+         Fetch (H, To_Handle (Cur), Node, Good);
+         if not Good or else Node.Kind /= Cell_Pair then
+            return;
+         end if;
+         Hd := To_Handle (Cur);
+         Set_Car (H, Hd, Arr (2), Good);
+         if not Good then
+            return;
+         end if;
+         Cur := Node.Cdr;
+         Left := Left - 1;
+      end loop;
+      Result := Unspecified_Value;
+      Status := No_Error;
+   end Vector_Fill_Prim;
+
+   procedure List_Tail_Prim
+     (H      : Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with Pre => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      K    : Fixnum;
+      V    : Value;
+      Tmp  : Value;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 2, 2, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      Get_Fixnum (Arr (2), K, Good);
+      if not Good or else K < 0 or else K > Max_List_Length then
+         Status := Error_Index;
+         return;
+      end if;
+      Tmp := Arr (1);
+      for I in 1 .. Natural (K) loop
+         Cdr_Of (H, Tmp, V, Good);
+         if not Good then
+            Status := Error_Type;
+            return;
+         end if;
+         Tmp := V;
+      end loop;
+      Result := Tmp;
+      Status := No_Error;
+   end List_Tail_Prim;
+
+   procedure List_Copy_Prim
+     (H      : in out Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      Tmp  : Value;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 1, 1, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      Reverse_List (H, Arr (1), Tmp, Good);
+      if not Good then
+         return;
+      end if;
+      Reverse_List (H, Tmp, Result, Good);
+      if not Good then
+         Status := Error_Heap_Full;
+         return;
+      end if;
+      Status := No_Error;
+   end List_Copy_Prim;
+
+   procedure Last_Pair_Prim
+     (H      : Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with Pre => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      Cur  : Value;
+      Node : Cell;
+      Next : Value;
+      Left : Natural := Max_List_Length + 1;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 1, 1, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      if not Is_Handle (Arr (1)) then
+         return;
+      end if;
+      Cur := Arr (1);
+      loop
+         pragma Loop_Invariant (H.Ready);
+         pragma Loop_Invariant (Is_Handle (Cur));
+         pragma Loop_Variant (Decreases => Left);
+         if Left = 0 then
+            return;
+         end if;
+         Left := Left - 1;
+         Fetch (H, To_Handle (Cur), Node, Good);
+         if not Good or else Node.Kind /= Cell_Pair then
+            return;
+         end if;
+         if Is_Nil (Node.Cdr) then
+            Result := Cur;
+            Status := No_Error;
+            return;
+         end if;
+         Next := Node.Cdr;
+         if not Is_Handle (Next) then
+            return;
+         end if;
+         Cur := Next;
+      end loop;
+   end Last_Pair_Prim;
+
+   procedure Equal_Prim
+     (H      : Heap_Type;
+      Args   : Value;
+      P      : Primitive_Id;
+      Result : out Value;
+      Status : out Error_Code)
+     with Pre => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      Ok   : Boolean := True;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 2, Max_Arguments, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      for I in 2 .. Len loop
+         if P = P_Eqv_P then
+            Ok := Ok and then Same_Value (Arr (1), Arr (I));
+         elsif P = P_Boolean_Equal then
+            Ok := Ok
+              and then Arr (1).Kind = Kind_Boolean
+              and then Arr (I).Kind = Kind_Boolean
+              and then Arr (1).B = Arr (I).B;
+         else
+            Ok := Ok
+              and then Is_Handle (Arr (1))
+              and then Is_Handle (Arr (I))
+              and then Same_Value (Arr (1), Arr (I));
+         end if;
+      end loop;
+      --  Every argument must have the right type even if an early pair
+      --  already decided the answer.
+      if P /= P_Eqv_P then
+         for I in 1 .. Len loop
+            if P = P_Boolean_Equal then
+               if Arr (I).Kind /= Kind_Boolean then
+                  Status := Error_Type;
+                  return;
+               end if;
+            else
+               declare
+                  Tmp  : Cell;
+                  Fine : Boolean;
+               begin
+                  if not Is_Handle (Arr (I)) then
+                     Status := Error_Type;
+                     return;
+                  end if;
+                  Fetch (H, To_Handle (Arr (I)), Tmp, Fine);
+                  if not Fine or else Tmp.Kind /= Cell_Symbol then
+                     Status := Error_Type;
+                     return;
+                  end if;
+               end;
+            end if;
+         end loop;
+      end if;
+      Result := Bool (Ok);
+      Status := No_Error;
+   end Equal_Prim;
+
    procedure Call
      (H      : in out Heap_Type;
       P      : Primitive_Id;
@@ -4305,6 +4902,38 @@ is
          when P_Exact_P | P_Inexact_P | P_Zero_P | P_Positive_P
            | P_Negative_P | P_Odd_P | P_Even_P =>
             Numeric_Predicate_Prim (H, Args, P, Result, Status);
+
+         when P_Char_Equal | P_Char_Less | P_Char_Greater
+           | P_Char_Less_Equal | P_Char_Greater_Equal =>
+            Char_Compare_Prim (H, Args, P, Result, Status);
+
+         when P_String_Less | P_String_Greater | P_String_Less_Equal
+           | P_String_Greater_Equal =>
+            String_Compare_Prim (H, Args, P, Result, Status);
+
+         when P_Make_String =>
+            Make_String_Prim (H, Args, Result, Status);
+
+         when P_String_Set =>
+            String_Set_Prim (H, Args, Result, Status);
+
+         when P_Make_Vector =>
+            Make_Vector_Prim (H, Args, Result, Status);
+
+         when P_Vector_Fill =>
+            Vector_Fill_Prim (H, Args, Result, Status);
+
+         when P_List_Tail =>
+            List_Tail_Prim (H, Args, Result, Status);
+
+         when P_List_Copy =>
+            List_Copy_Prim (H, Args, Result, Status);
+
+         when P_Last_Pair =>
+            Last_Pair_Prim (H, Args, Result, Status);
+
+         when P_Eqv_P | P_Boolean_Equal | P_Symbol_Equal =>
+            Equal_Prim (H, Args, P, Result, Status);
 
          when P_None =>
             return;

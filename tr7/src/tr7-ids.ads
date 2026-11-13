@@ -104,6 +104,26 @@ is
       P_Odd_P,
       P_Even_P,
       P_Memv,
-      P_Assv);
+      P_Assv,
+      --  Comparison procedures and constructors.
+      P_Char_Equal,
+      P_Char_Less,
+      P_Char_Greater,
+      P_Char_Less_Equal,
+      P_Char_Greater_Equal,
+      P_String_Less,
+      P_String_Greater,
+      P_String_Less_Equal,
+      P_String_Greater_Equal,
+      P_Make_String,
+      P_String_Set,
+      P_Make_Vector,
+      P_Vector_Fill,
+      P_List_Tail,
+      P_List_Copy,
+      P_Last_Pair,
+      P_Eqv_P,
+      P_Boolean_Equal,
+      P_Symbol_Equal);
 
 end Tr7.Ids;

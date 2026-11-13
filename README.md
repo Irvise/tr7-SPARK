@@ -86,7 +86,11 @@ environment specifier (`tests/core.scm`); `load` is still outside v1.
 Sequence and number utilities include `list->vector`, `vector->list`,
 `list->string`, `string->list`, `string-copy`, `number->string`,
 `string->number`, `exact?`, `inexact?`, `zero?`, `positive?`, `negative?`,
-`odd?`, `even?`, `memv` and `assv` (`tests/core.scm`).
+`odd?`, `even?`, `memv` and `assv`; and the comparison, constructor and
+list utilities `char=?`/`char<?`/`char>?`/`char<=?`/`char>=?`,
+`string<?`/`string>?`/`string<=?`/`string>=?`, `make-string`, `string-set!`,
+`make-vector`, `vector-fill!`, `list-tail`, `list-copy`, `last-pair`,
+`eqv?`, `boolean=?` and `symbol=?` (`tests/core.scm`).
 
 `values` and `call-with-values` are in (`tests/values.scm`): several
 values ride a wrapper cell that the evaluator spreads onto the consumer,
