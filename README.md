@@ -122,9 +122,12 @@ and recursive macros.  Expansion is non-hygienic, so an introduced binding can
 capture a caller's identifier; nested ellipses and an ellipsis followed by a
 dotted tail are not supported.
 
-`(import ...)` is accepted as a compatibility declaration: there is no
-library system, but the core bindings are already in the initial environment,
-so R7RS scripts that open with `(import (scheme base))` run.
+`(import ...)` is accepted: `(import (srfi 1))` loads a Scheme prelude with
+`filter`, `fold`/`fold-right`/`fold-left`, `any`, `every`, `find`, `take`,
+`drop`, `iota`, `zip`, `concatenate`, `delete-duplicates` and friends; other
+library names are declarations because the core bindings are already global.
+`define-record-type` implements SRFI-9 records as tagged vectors, including
+constructors, predicates, accessors and modifiers (`tests/records.scm`).
 
 `+inf.0`, `-inf.0` and `+nan.0` are both written and read (`tests/core.scm`);
 the constants come from the standard Ada elementary-function library in the

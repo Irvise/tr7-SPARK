@@ -1,0 +1,16 @@
+(define show (lambda (x) (write x) (newline)))
+(define-record-type point
+  (make-point x y)
+  point?
+  (x point-x set-point-x!)
+  (y point-y))
+(define p (make-point 1 2))
+(show (point? p))
+(show (point? 5))
+(show (point-x p))
+(show (point-y p))
+(set-point-x! p 9)
+(show (point-x p))
+(define-record-type empty (make-empty) empty?)
+(show (empty? (make-empty)))
+(show (empty? p))

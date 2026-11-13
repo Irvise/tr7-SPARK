@@ -23,8 +23,6 @@ is
       Error_Range,
       --  Scheme's own (error ...), whose text lives in Heap.Error_Msg.
       Error_User,
-      --  A continuation invoked outside the dynamic extent it captured.
-      Error_Continuation,
       --  The environment chain is deeper than Max_Env_Depth.
       Error_Env_Depth);
 

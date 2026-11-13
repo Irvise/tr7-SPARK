@@ -205,6 +205,22 @@ The macro cell is an ordinary heap object with no new marking rule: its
 literals and rules are reachable through `Car`/`Cdr`, which the collector
 already follows.
 
+## Records and SRFIs
+
+`define-record-type` (SRFI-9 and the R7RS record form) is a rewrite into a
+`begin` of ordinary definitions: a record is a vector whose slot 0 is the
+record-type name symbol, the constructor is a lambda over the named fields,
+the predicate checks the tag, and each accessor/modifier is a `vector-ref`/
+`vector-set!` lambda.  `Tr7.Records` builds that code; no new cell kind or
+frame is involved (`tests/records.scm`).
+
+`(import (srfi 1))` installs a fixed Scheme prelude on first use.  The
+higher-order list procedures (`filter`, `fold`, `fold-right`, `fold-left`,
+`any`, `every`, `find`, `take-while`, `drop-while`, `append-map`, ...) are
+written in Scheme so the evaluator calls user procedures; they are loaded
+lazily by the `import` form rather than occupying the arena in every engine.
+Other library names are accepted but not implemented.
+
 ## Ports
 
 A port is a value over one of two cell kinds -- `Cell_Input_Port` and

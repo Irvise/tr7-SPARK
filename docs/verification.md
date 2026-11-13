@@ -19,7 +19,7 @@ The `tr7` crate is the verified core:
 
 This is not a machine-checked proof of R7RS semantics.  In particular:
 
-- full re-entrant `call/cc` and libraries are out of v1;
+- libraries are out of v1 (a re-entrant `call/cc` is implemented);
 - `syntax-rules` is a pragmatic subset (non-hygienic, one trailing ellipsis
   group per list level; no nested ellipses);
 - C ABI compatibility is function-level, not bit-level tagged-pointer
@@ -84,7 +84,8 @@ Results, one entry per closed step of the plan:
 | character names, lone-dot rejection, C ABI pointer validation | 4,014 |
 | re-entrant call/cc (heap continuation snapshots) + IEEE special values | 4,079 |
 | wind re-entry through continuations | 4,102 |
-| relaxed initialization of the GC root scratch array | **4,138** |
+| relaxed initialization of the GC root scratch array | 4,138 |
+| records, SRFI-1 prelude, cross-wind continuations | **4,412** |
 
 Every row is 0 unproved, 0 justified, 0 warnings, with flow, initialization
 and non-aliasing fully proved and a warning-free build.
@@ -104,7 +105,7 @@ instead of asking the prover to reason about a wide multiply.
 
 ## Gold hardening audit (M5)
 
-At the accepted state (2026-11-13, 4,138 checks):
+At the accepted state (2026-11-13, 4,412 checks):
 
 - every unit under `tr7/src` is `SPARK_Mode => On`; `tr7i` and `tr7_c` are the
   documented `SPARK_Mode => Off` trusted boundary.  The three constant
@@ -123,13 +124,13 @@ Summary by obligation category from `gnatprove.out`:
 
 | category | checks | proved |
 | --- | --- | --- |
-| Initialization | 1,378 | 1,378 |
+| Initialization | 1,483 | 1,483 |
 | Non-Aliasing | 12 | 12 |
-| Run-time Checks | 911 | 911 |
-| Assertions | 414 | 414 |
-| Functional Contracts | 1,292 | 1,292 |
-| Termination | 131 | 131 (70 by flow analysis, 61 by the provers) |
-| **Total** | **4,138** | **4,138** |
+| Run-time Checks | 920 | 920 |
+| Assertions | 432 | 432 |
+| Functional Contracts | 1,428 | 1,428 |
+| Termination | 137 | 137 (72 by flow analysis, 65 by the provers) |
+| **Total** | **4,412** | **4,412** |
 
 ### Contract review
 

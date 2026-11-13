@@ -117,6 +117,10 @@ is
       Env    : Handle := Null_Handle;
       Stack  : Frame_Array := (others => (others => <>));
       Top    : Natural range 0 .. Max_Stack := 0;
+      --  Identity of the next dynamic-wind activation, for deciding which
+      --  winds a continuation invocation enters and leaves.
+      Next_Wind : Natural range 1 .. Max_Cells := 1;
+      SRFI1_Loaded : Boolean := False;
       Result : Value := Nil_Value;
       Error  : Error_Code := No_Error;
    end record;

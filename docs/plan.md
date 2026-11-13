@@ -4,9 +4,9 @@
 
 M0–M5 are complete and the v1 scope below is implemented: the verified core,
 REPL and script runner, the C ABI subset, the conformance suites, and the
-mark-sweep reachability proof.  The gate is green at 4,138 checks (level 4,
+mark-sweep reachability proof.  The gate is green at 4,412 checks (level 4,
 5 s per check, `--checks-as-errors`), with no unproved, justified or assumed
-checks and 49 green suites (each also run under stress GC).
+checks and 52 green suites (each also run under stress GC).
 
 Design decisions taken along the way are recorded in `docs/findings.md`; the
 ones that shape the code most are the product-safe fixnum range
@@ -15,8 +15,8 @@ mark epochs instead of mark bits, and the collector split into worklist drain
 plus read-only closure verification (`docs/M5-TASK.md`).
 
 Work explicitly left outside v1 is listed under "Not in v1" below (notably
-`syntax-rules`, libraries/`import`, `load`, full re-entrant `call/cc`
-and real file ports; `eval` is now available.
+`syntax-rules`, libraries/`import`, `load` and real file ports; `eval`
+and re-entrant `call/cc` are now available.
 
 ## Goal
 
@@ -51,16 +51,16 @@ In v1:
 - procedures: arithmetic/comparison, pairs/lists, strings/chars,
   vectors/bytevectors, predicates, `apply`, `map`, `for-each`,
   `display`/`write`/`newline`, `read`, `error`, `values`/`call-with-values`,
-  escaping-only `call/cc`, `dynamic-wind`, string ports;
+  re-entrant `call/cc`, `dynamic-wind`, string ports;
 - memory: engine-owned fixed-size cell arena, index+generation handles,
   simple mark-sweep GC;
 - C ABI: core subset implemented, all other `tr7.h` symbols present as stubs;
 - REPL and script runner.
 
 Not in v1: full hygienic `syntax-rules` (a pragmatic subset is implemented),
-a real library system (`import` is accepted as a compatibility declaration),
-`load`, records, SRFIs,
-full Unicode tables, bignums/rationals/complex, full re-entrant `call/cc`, the
+a real library system (`import` is accepted as a compatibility declaration and
+loads the SRFI-1 prelude), `load`, the full SRFI catalogue (SRFI-1 and SRFI-9
+records are implemented), full Unicode tables, bignums/rationals/complex, the
 full TR7 debug/trace/extension API, and bit-level tagged-pointer ABI
 compatibility.
 
@@ -102,7 +102,7 @@ not declared as a crate dependency, so `alr build` requires only GNAT and GPR.
 - Mark-sweep GC: the CEK state and global environment are the complete root
   set at a safe point; symbols are interned by scanning, ports carry text
   inline, and there is no separate constants table.
-- Restricted `call/cc`: escape frame valid only within its dynamic extent.
+- `call/cc`: heap snapshot of the CEK frames; re-entrant/multi-shot.
 - Environments: association-list frames with a parent handle.
 - Ports: string ports in `tr7`; `tr7i` loads files into strings and prints
   output. The verified core never touches the OS.

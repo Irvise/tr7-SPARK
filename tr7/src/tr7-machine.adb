@@ -3,7 +3,11 @@ with Tr7.Cells; use Tr7.Cells;
 with Tr7.Env; use Tr7.Env;
 with Tr7.Macros;
 with Tr7.Pairs; use Tr7.Pairs;
+with Tr7.Prelude;
+with Tr7.Reader;
+use type Tr7.Reader.Read_Status;
 with Tr7.Primitives; use Tr7.Primitives;
+with Tr7.Records;
 with Tr7.Reach;
 
 package body Tr7.Machine with
@@ -405,6 +409,12 @@ is
       Befores  : Value;
       Rev      : Value;
       Cur      : Value;
+      Cur2     : Value;
+      Cur_Winds : Value;
+      Cur_OI   : Value;
+      Cap_Winds : Value;
+      Cap_OI   : Value;
+      Pair     : Value;
       Tmp      : Value;
       Next     : Value;
    begin
@@ -438,23 +448,33 @@ is
             Target := C.Cont_Depth;
             Old_Top := M.Top;
 
-            --  Every wind the escape discards has an after to run.  Frames
-            --  above the captured depth are the ones being crossed; the
-            --  after procedure was evaluated when the wind form ran and
-            --  rides in the frame's Expr.
-            Wind := Nil_Value;
-            for J in Target + 1 .. Old_Top loop
-               pragma Loop_Invariant (Target < J and then J <= Old_Top);
+            --  Identify the winds active now and at the captured point by
+            --  their activation id, so escapes, re-entry and same-depth
+            --  jumps use the same rule: leave the winds above the common
+            --  prefix, then enter the captured winds above it.
+            Cur_Winds := Nil_Value;
+            for J in 1 .. Old_Top loop
+               pragma Loop_Invariant (J <= Old_Top);
                pragma Loop_Invariant (H.Ready);
                if M.Stack (J).Kind = K_Wind then
-                  Cons (H, M.Stack (J).Expr, Wind, New_Wind, Good);
+                  Cons (H, M.Stack (J).Sym, M.Stack (J).Expr, Pair, Good);
                   if not Good then
                      Fail (M, Error_Heap_Full);
                      return;
                   end if;
-                  Wind := New_Wind;
+                  Cons (H, Pair, Cur_Winds, Tmp, Good);
+                  if not Good then
+                     Fail (M, Error_Heap_Full);
+                     return;
+                  end if;
+                  Cur_Winds := Tmp;
                end if;
             end loop;
+            Reverse_List (H, Cur_Winds, Cur_OI, Good);
+            if not Good then
+               Fail (M, Error_Heap_Full);
+               return;
+            end if;
 
             Restore_Stack (H, M, C, First, Good);
             if not Good then
@@ -462,38 +482,150 @@ is
                return;
             end if;
 
-            --  Re-entering winds that were not active in the current stack
-            --  runs their before procedures, outermost first.
-            Befores := Nil_Value;
-            for J in Old_Top + 1 .. Target loop
-               pragma Loop_Invariant (Old_Top < J and then J <= Target);
+            Cap_Winds := Nil_Value;
+            for J in 1 .. Target loop
+               pragma Loop_Invariant (J <= Target);
                pragma Loop_Invariant (H.Ready);
                if M.Stack (J).Kind = K_Wind then
-                  Cons (H, M.Stack (J).Sym, Befores, Tmp, Good);
+                  Cons (H, M.Stack (J).Sym, M.Stack (J).Alt, Pair, Good);
                   if not Good then
                      Fail (M, Error_Heap_Full);
                      return;
                   end if;
-                  Befores := Tmp;
+                  Cons (H, Pair, Cap_Winds, Tmp, Good);
+                  if not Good then
+                     Fail (M, Error_Heap_Full);
+                     return;
+                  end if;
+                  Cap_Winds := Tmp;
                end if;
             end loop;
-            Reverse_List (H, Befores, Rev, Good);
+            Reverse_List (H, Cap_Winds, Cap_OI, Good);
             if not Good then
                Fail (M, Error_Heap_Full);
                return;
             end if;
 
-            --  Combine: afters first (inner to outer), then befores.
-            if not Is_Nil (Wind) and then not Is_Nil (Rev) then
+            --  Skip the common wind prefix.
+            Cur := Cur_OI;
+            Tmp := Cap_OI;
+            while not Is_Nil (Cur) and then not Is_Nil (Tmp) loop
+               pragma Loop_Invariant (H.Ready);
+               Car_Of (H, Cur, Pair, Good);
+               if not Good then
+                  Fail (M, Error_Malformed);
+                  return;
+               end if;
+               declare
+                  Id1 : Value;
+                  Id2 : Value;
+               begin
+                  Car_Of (H, Pair, Id1, Good);
+                  if not Good then
+                     Fail (M, Error_Malformed);
+                     return;
+                  end if;
+                  Car_Of (H, Tmp, Pair, Good);
+                  if not Good then
+                     Fail (M, Error_Malformed);
+                     return;
+                  end if;
+                  Car_Of (H, Pair, Id2, Good);
+                  if not Good then
+                     Fail (M, Error_Malformed);
+                     return;
+                  end if;
+                  exit when not Same_Value (Id1, Id2);
+               end;
+               Cdr_Of (H, Cur, Next, Good);
+               if not Good then
+                  Fail (M, Error_Malformed);
+                  return;
+               end if;
+               Cur := Next;
+               Cdr_Of (H, Tmp, Next, Good);
+               if not Good then
+                  Fail (M, Error_Malformed);
+                  return;
+               end if;
+               Tmp := Next;
+            end loop;
+
+            --  Afters for the current winds above the prefix, inner first.
+            Wind := Nil_Value;
+            Cur2 := Cur;
+            while not Is_Nil (Cur2) loop
+               pragma Loop_Invariant (H.Ready);
+               Car_Of (H, Cur2, Pair, Good);
+               if not Good then
+                  Fail (M, Error_Malformed);
+                  return;
+               end if;
+               Cdr_Of (H, Pair, After_V, Good);
+               if not Good then
+                  Fail (M, Error_Malformed);
+                  return;
+               end if;
+               Cons (H, After_V, Wind, New_Wind, Good);
+               if not Good then
+                  Fail (M, Error_Heap_Full);
+                  return;
+               end if;
+               Wind := New_Wind;
+               Cdr_Of (H, Cur2, Next, Good);
+               if not Good then
+                  Fail (M, Error_Malformed);
+                  return;
+               end if;
+               Cur2 := Next;
+            end loop;
+
+            --  Befores for the captured winds above the prefix, outer first.
+            Reverse_List (H, Tmp, Cap_OI, Good);
+            if not Good then
+               Fail (M, Error_Heap_Full);
+               return;
+            end if;
+            Befores := Nil_Value;
+            Cur2 := Cap_OI;
+            while not Is_Nil (Cur2) loop
+               pragma Loop_Invariant (H.Ready);
+               Car_Of (H, Cur2, Pair, Good);
+               if not Good then
+                  Fail (M, Error_Malformed);
+                  return;
+               end if;
+               Cdr_Of (H, Pair, After_V, Good);
+               if not Good then
+                  Fail (M, Error_Malformed);
+                  return;
+               end if;
+               Cons (H, After_V, Befores, New_Wind, Good);
+               if not Good then
+                  Fail (M, Error_Heap_Full);
+                  return;
+               end if;
+               Befores := New_Wind;
+               Cdr_Of (H, Cur2, Next, Good);
+               if not Good then
+                  Fail (M, Error_Malformed);
+                  return;
+               end if;
+               Cur2 := Next;
+            end loop;
+
+            --  Combine: afters first (already inner to outer), then befores.
+            Rev := Befores;
+            if not Is_Nil (Wind) and then not Is_Nil (Befores) then
                Reverse_List (H, Wind, Tmp, Good);
                if not Good then
                   Fail (M, Error_Heap_Full);
                   return;
                end if;
-               Cur := Tmp;
-               while not Is_Nil (Cur) loop
+               Cur2 := Tmp;
+               while not Is_Nil (Cur2) loop
                   pragma Loop_Invariant (H.Ready);
-                  Car_Of (H, Cur, After_V, Good);
+                  Car_Of (H, Cur2, After_V, Good);
                   if not Good then
                      Fail (M, Error_Malformed);
                      return;
@@ -504,12 +636,12 @@ is
                      return;
                   end if;
                   Rev := Tmp;
-                  Cdr_Of (H, Cur, Next, Good);
+                  Cdr_Of (H, Cur2, Next, Good);
                   if not Good then
                      Fail (M, Error_Malformed);
                      return;
                   end if;
-                  Cur := Next;
+                  Cur2 := Next;
                end loop;
             elsif not Is_Nil (Wind) then
                Rev := Wind;
@@ -2629,6 +2761,54 @@ is
       Ok := True;
    end Named_Let_To_Code;
 
+   --  Load the Scheme SRFI-1 prelude on the first (import (srfi 1)).
+   procedure Load_SRFI1
+     (H : in out Heap_Type; M : in out Machine; Ok : out Boolean)
+     with Pre => H.Ready, Post => H.Ready
+   is
+      Src   : constant String := Tr7.Prelude.Source;
+      Pos   : Natural := 0;
+      St    : Tr7.Reader.Read_Status;
+      Form  : Value;
+      Forms : Value := Nil_Value;
+      Tmp   : Value;
+      Begin_Sym : Value;
+      Code  : Value;
+   begin
+      Ok := False;
+      loop
+         pragma Loop_Invariant (H.Ready);
+         pragma Loop_Invariant (Pos <= Src'Length);
+         exit when Pos >= Src'Length;
+         Tr7.Reader.Read_Datum (H, Src, Pos, Form, St);
+         if St /= Tr7.Reader.Read_Ok then
+            return;
+         end if;
+         Cons (H, Form, Forms, Tmp, Ok);
+         if not Ok then
+            return;
+         end if;
+         Forms := Tmp;
+      end loop;
+      Reverse_List (H, Forms, Tmp, Ok);
+      if not Ok then
+         return;
+      end if;
+      Forms := Tmp;
+      Intern (H, "begin", Begin_Sym, Ok);
+      if not Ok then
+         return;
+      end if;
+      Cons (H, Begin_Sym, Forms, Code, Ok);
+      if not Ok then
+         return;
+      end if;
+      M.Ctl := Code;
+      M.Mode := Mode_Eval;
+      M.SRFI1_Loaded := True;
+      Ok := True;
+   end Load_SRFI1;
+
    procedure Eval_Pair
      (H : in out Heap_Type;
       M : in out Machine)
@@ -2778,6 +2958,19 @@ is
          end if;
          M.Result := From_Handle (Hd);
          M.Mode := Mode_Return;
+         return;
+      end if;
+
+      if Is_Symbol_Named (H, Head, "define-record-type") then
+         --  SRFI-9 records are vectors whose slot 0 is the type name; the
+         --  form becomes a begin of constructor/predicate/accessor defines.
+         Tr7.Records.Build (H, M.Ctl, Tmp, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         M.Ctl := Tmp;
+         M.Mode := Mode_Eval;
          return;
       end if;
 
@@ -3454,10 +3647,71 @@ is
       end if;
 
       if Is_Symbol_Named (H, Head, "import") then
-         --  There is no library system: the core bindings are already in the
-         --  initial environment, so accepting the declaration lets R7RS
-         --  scripts that begin with (import (scheme base) ...) run.  The
-         --  library names are not validated.
+         --  There is no general library system, but (srfi 1) loads the
+         --  Scheme prelude once; all other library names are accepted as
+         --  declarations because the core bindings are already global.
+         Cdr_Of (H, M.Ctl, Rest, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         declare
+            Cur   : Value := Rest;
+            Spec  : Value;
+            A, B  : Value;
+            Next  : Value;
+            Found : Boolean := False;
+            Left  : Natural := Max_List_Length + 1;
+         begin
+            while not Is_Nil (Cur) and then Left > 0 loop
+               pragma Loop_Invariant (H.Ready);
+               pragma Loop_Variant (Decreases => Left);
+               Car_Of (H, Cur, Spec, Good);
+               if not Good then
+                  Fail (M, Error_Malformed);
+                  return;
+               end if;
+               if Is_Handle (Spec) then
+                  Car_Of (H, Spec, A, Good);
+                  if not Good then
+                     Fail (M, Error_Malformed);
+                     return;
+                  end if;
+                  Cdr_Of (H, Spec, B, Good);
+                  if not Good then
+                     Fail (M, Error_Malformed);
+                     return;
+                  end if;
+                  if Is_Symbol_Named (H, A, "srfi")
+                    and then not Is_Nil (B)
+                  then
+                     Car_Of (H, B, A, Good);
+                     if not Good then
+                        Fail (M, Error_Malformed);
+                        return;
+                     end if;
+                     if Is_Fixnum (A) and then A.N = 1 then
+                        Found := True;
+                     end if;
+                  end if;
+               end if;
+               Cdr_Of (H, Cur, Next, Good);
+               if not Good then
+                  Fail (M, Error_Malformed);
+                  return;
+               end if;
+               Cur := Next;
+               Left := Left - 1;
+            end loop;
+            if Found and then not M.SRFI1_Loaded then
+               Load_SRFI1 (H, M, Good);
+               if not Good then
+                  Fail (M, Error_Malformed);
+                  return;
+               end if;
+               return;
+            end if;
+         end;
          M.Result := Unspecified_Value;
          M.Mode := Mode_Return;
          return;
@@ -3954,6 +4208,13 @@ is
             --  thunk runs *under* it, which is what makes the wind visible
             --  to an escape.
             First := F.Func;
+            if M.Next_Wind = Max_Cells then
+               Fail (M, Error_Step_Limit);
+               return;
+            end if;
+            F.Alt := F.Sym;          --  keep the before procedure
+            F.Sym := From_Fixnum (Integer_64 (M.Next_Wind));
+            M.Next_Wind := M.Next_Wind + 1;
             F.Kind := K_Wind;
             Push (M, F, Good);
             if not Good then
