@@ -2,14 +2,21 @@
 
 ## Current status
 
-M0 is functionally complete: the `tr7` library builds, the `tr7i` REPL and
-script runner evaluate the walking-skeleton forms, four smoke suites pass
-(literals/forms, primitives, arithmetic overflow, arity errors), and GNATprove
-at level 4 with a 5 second per-check timeout is the active gate.
+M0–M5 are complete and the v1 scope below is implemented: the verified core,
+REPL and script runner, the C ABI subset, the conformance suites, and the
+mark-sweep reachability proof.  The gate is green at 2,982 checks (level 4,
+5 s per check, `--checks-as-errors`), with no unproved, justified or assumed
+checks and 45 green test runs.
 
-Design decisions taken while proving M0 are recorded in `docs/findings.md`;
-the two that shape the code are the product-safe fixnum range
-(`-(2**31) .. 2**31 - 1`) and the single engine readiness flag (`E.H.Ready`).
+Design decisions taken along the way are recorded in `docs/findings.md`; the
+ones that shape the code most are the product-safe fixnum range
+(`-(2**31) .. 2**31 - 1`), the single engine readiness flag (`E.H.Ready`),
+mark epochs instead of mark bits, and the collector split into worklist drain
+plus read-only closure verification (`docs/M5-TASK.md`).
+
+Work explicitly left outside v1 is listed under "Not in v1" below (notably
+`syntax-rules`, libraries/`import`, `eval`/`load`, full re-entrant `call/cc`
+and real file ports).
 
 ## Goal
 
@@ -123,7 +130,7 @@ not declared as a crate dependency, so `alr build` requires only GNAT and GPR.
   the marked set is closed after draining, and `Tr7.Reach`'s path-induction
   lemma carries it to every cell reachable from a root.  Stress-GC mode
   collects on a fixed cadence.
-- `scripts/prove.sh` clears `obj/gnatprove`, runs with `--timeout=5 -j4` and
+- `scripts/prove.sh` clears `obj/gnatprove`, runs with `--timeout=5 -j6` and
   greps the summary for `medium:`/`high:`/`unproved`/`failed`; exit code 0
   alone is not trusted.  Never overlap two runs on the same `obj` directory.
 
@@ -138,8 +145,8 @@ not declared as a crate dependency, so `alr build` requires only GNAT and GPR.
 | M4 | 2 weeks | String ports, REPL, C ABI subset + generated stubs, core test suite -- **complete**: string ports (`tests/ports.scm`), the REPL, the C ABI (six contracted entry points, 177 generated stubs, `tests/abi_demo.c`) and 44 test runs |
 | M5 | 2-3 weeks | Mark-sweep GC proof, Gold hardening, contracts, benchmarks, report -- **complete**: `Tr7.Reach` proves reachable cells are marked and the sweep never frees them, the collector is split into epoch jump / worklist drain / read-only verification / sweep, and the gate is green with zero unproved checks |
 
-Estimated hand-written core size: 6-8k lines of Ada, plus generated C ABI stubs
-and tests.
+Size: about 11.5k lines of Ada in `tr7/src`, plus the REPL, C ABI, generated
+stubs and tests.
 
 ## Proof practices adopted from the Ironclad campaign
 
@@ -147,7 +154,7 @@ and tests.
   invariants.
 - Avoid nonlinear arithmetic in contracts.
 - Measure proof time cold; clear `obj/gnatprove` before per-unit runs.
-- One GNATprove run at a time per object directory (`-j4` inside it is fine);
+- One GNATprove run at a time per object directory (`-j6` inside it is fine);
   a syntax error in any unit poisons all runs.
 - Never hide real checks with `Suppress`; remove unproved obligations by design.
 - Keep `SPARK_Mode Off` bodies scoped and documented.
@@ -155,7 +162,7 @@ and tests.
 - Fully initialize `out` parameters.
 - Prefer expression functions when preconditions mention them.
 
-## M1 breakdown (next)
+## M1 breakdown (record)
 
 Concrete order, each step keeping the proof and the suites green.
 

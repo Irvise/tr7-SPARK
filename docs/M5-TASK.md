@@ -1,8 +1,9 @@
 # M5 — GC reachability proof: completion report
 
-**Status: M5 complete.  Gate green at 2,895 checks (level 4, 5 s, `-j6`,
-`--checks-as-errors`), 0 unproved, 0 justified, 0 warnings, 44 test runs
-green.**  Last updated: 2026-11-13.
+**Status: M5 complete.  The M5 gate was green at 2,895 checks; it is now
+2,982 after the follow-up core-procedure batch, still with 0 unproved,
+0 justified, 0 warnings and 45 test runs green (level 4, 5 s, `-j6`,
+`--checks-as-errors`).**  Last updated: 2026-11-13.
 
 This document records how the reachability/liveness obligation was closed.  It
 replaces the earlier M5 handoff, whose state was gate RED; the experiments
@@ -120,7 +121,7 @@ stress suite run for minutes.  It was discarded in favour of the worklist.
 
 ```sh
 ./scripts/build.sh        # checked build (TR7_CHECKS=on by default)
-./scripts/test.sh         # 44 runs; prints ms per suite
+./scripts/test.sh         # 45 runs; prints ms per suite
 ./scripts/prove.sh        # full gate, 5 s, -j6
 TIMEOUT=20 ./scripts/prove.sh   # only for a recorded hard check
 ./scripts/bench.sh        # checks off, removes objects afterwards

@@ -69,7 +69,8 @@ Results, one entry per closed step of the plan:
 | restricted `call/cc` | 2,666 |
 | `dynamic-wind` -- M3 complete | 2,692 |
 | M4 C ABI (six entry points, 177 generated stubs) | 2,692 |
-| M5 collector proof (worklist + read-only closure check) | **2,895** |
+| M5 collector proof (worklist + read-only closure check) | 2,895 |
+| core procedure coverage (type predicates, selectors, conversions, mutation) | **2,982** |
 
 Every row is 0 unproved, 0 justified, 0 warnings, with flow, initialization
 and non-aliasing fully proved and a warning-free build.
@@ -86,3 +87,40 @@ redesigning a contract or data structure over `Assume` or `Suppress`.
 There is no raised-timeout obligation in the accepted state: the multiplication
 exactness claim became provable at 5 s by choosing a product-safe fixnum range
 instead of asking the prover to reason about a wide multiply.
+
+## Gold hardening audit (M5)
+
+At the accepted state (2026-11-13, 2,982 checks):
+
+- every unit under `tr7/src` is `SPARK_Mode => On`; `tr7i` and `tr7_c` are the
+  documented `SPARK_Mode => Off` trusted boundary;
+- `grep` finds no `pragma Assume`, `pragma Annotate` or `pragma Suppress`
+  under `tr7/src`;
+- `gnatprove.out` has an empty *Justified* and *Unproved* column, and every
+  unit line reports "0 warnings and 0 pragma Assume statements";
+- the checked build (`-gnata -gnatwa`) is warning-free;
+- `Reachable` appears only in `Tr7.Reach` (and only in proof-only invariants);
+  no pre- or postcondition mentions it, so it is never evaluated at run time.
+
+Summary by obligation category from `gnatprove.out`:
+
+| category | checks | proved |
+| --- | --- | --- |
+| Initialization | 968 | 968 |
+| Non-Aliasing | 12 | 12 |
+| Run-time Checks | 652 | 652 |
+| Assertions | 330 | 330 |
+| Functional Contracts | 927 | 927 |
+| Termination | 93 | 93 (65 by flow analysis, 28 by the provers) |
+| **Total** | **2,982** | **2,982** |
+
+### Contract review
+
+Every public `tr7` operation either carries a Pre/Post pair (heap operations,
+machine and engine entry points, reader/writer, primitives with bounds) or is
+a total expression function whose result needs no precondition (value
+predicates, `Is_Marked`, `Child_Marked`, `Closed_*`, `Reachable`).  The C ABI
+subprograms in `tr7_c` keep their contracts and are documented as trusted
+bodies.  The collector's postcondition states the three closedness facts
+separately and never mentions `Reachable`; the sweep's liveness goal lives in
+`Tr7.Reach` loop invariants, which the policy file compiles away.
