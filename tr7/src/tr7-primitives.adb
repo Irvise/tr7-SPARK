@@ -87,6 +87,21 @@ is
          when P_Div                => return "/";
          when P_Error              => return "error";
          when P_Values             => return "values";
+         when P_Boolean_P          => return "boolean?";
+         when P_Symbol_P           => return "symbol?";
+         when P_Char_P             => return "char?";
+         when P_Number_P           => return "number?";
+         when P_Procedure_P        => return "procedure?";
+         when P_Set_Car            => return "set-car!";
+         when P_Set_Cdr            => return "set-cdr!";
+         when P_Caar               => return "caar";
+         when P_Cadr               => return "cadr";
+         when P_Cdar               => return "cdar";
+         when P_Cddr               => return "cddr";
+         when P_Symbol_To_String   => return "symbol->string";
+         when P_String_To_Symbol   => return "string->symbol";
+         when P_Char_To_Integer    => return "char->integer";
+         when P_Integer_To_Char    => return "integer->char";
       end case;
    end Name_Of;
 
@@ -823,6 +838,37 @@ is
             begin
                Kind_Of (H, To_Handle (Arr (1)), Kind, Valid);
                Res := Valid and then Kind = Cell_Pair;
+            end;
+         end if;
+      elsif P = P_Boolean_P then
+         Res := Arr (1).Kind = Kind_Boolean;
+      elsif P = P_Char_P then
+         Res := Arr (1).Kind = Kind_Character;
+      elsif P = P_Number_P then
+         Res := Is_Fixnum (Arr (1)) or else Is_Flonum (Arr (1));
+      elsif P = P_Symbol_P then
+         Res := Is_Handle (Arr (1));
+         if Res then
+            declare
+               Kind  : Cell_Kind;
+               Valid : Boolean;
+            begin
+               Kind_Of (H, To_Handle (Arr (1)), Kind, Valid);
+               Res := Valid and then Kind = Cell_Symbol;
+            end;
+         end if;
+      elsif P = P_Procedure_P then
+         Res := Is_Handle (Arr (1));
+         if Res then
+            declare
+               Kind  : Cell_Kind;
+               Valid : Boolean;
+            begin
+               Kind_Of (H, To_Handle (Arr (1)), Kind, Valid);
+               Res := Valid
+                 and then (Kind = Cell_Closure
+                             or else Kind = Cell_Primitive
+                             or else Kind = Cell_Continuation);
             end;
          end if;
       else
@@ -3268,6 +3314,284 @@ is
       end if;
    end Sqrt_Prim;
 
+   --  (set-car! pair value) / (set-cdr! pair value): the heap already owns
+   --  the mutation, so these only validate the pair and report Scheme errors.
+   procedure Set_Car_Prim
+     (H      : in out Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 2, 2, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      if not Is_Handle (Arr (1)) then
+         return;
+      end if;
+      Set_Car (H, To_Handle (Arr (1)), Arr (2), Good);
+      if not Good then
+         return;
+      end if;
+      Result := Unspecified_Value;
+      Status := No_Error;
+   end Set_Car_Prim;
+
+   procedure Set_Cdr_Prim
+     (H      : in out Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 2, 2, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      if not Is_Handle (Arr (1)) then
+         return;
+      end if;
+      Set_Cdr (H, To_Handle (Arr (1)), Arr (2), Good);
+      if not Good then
+         return;
+      end if;
+      Result := Unspecified_Value;
+      Status := No_Error;
+   end Set_Cdr_Prim;
+
+   --  caar / cadr / cdar / cddr.  The single-level helpers live in
+   --  Tr7.Pairs; the two-level forms compose them so no new traversal code
+   --  is needed.
+   procedure Selector_Prim
+     (H      : Heap_Type;
+      Args   : Value;
+      P      : Primitive_Id;
+      Result : out Value;
+      Status : out Error_Code)
+     with Pre => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      Tmp  : Value;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 1, 1, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+
+      case P is
+         when P_Caar =>
+            Car_Of (H, Arr (1), Tmp, Good);
+            if Good then
+               Car_Of (H, Tmp, Result, Good);
+            end if;
+         when P_Cadr =>
+            Cadr_Of (H, Arr (1), Result, Good);
+         when P_Cdar =>
+            Car_Of (H, Arr (1), Tmp, Good);
+            if Good then
+               Cdr_Of (H, Tmp, Result, Good);
+            end if;
+         when P_Cddr =>
+            Cddr_Of (H, Arr (1), Result, Good);
+         when others =>
+            Status := Error_Not_Implemented;
+            return;
+      end case;
+
+      if not Good then
+         Result := Void_Value;
+         Status := Error_Type;
+      else
+         Status := No_Error;
+      end if;
+   end Selector_Prim;
+
+   procedure Symbol_To_String_Prim
+     (H      : in out Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      C    : Cell;
+      Hd   : Handle;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 1, 1, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      if not Is_Handle (Arr (1)) then
+         return;
+      end if;
+      Fetch (H, To_Handle (Arr (1)), C, Good);
+      if not Good or else C.Kind /= Cell_Symbol then
+         return;
+      end if;
+      New_String (H, Text_Of (C), Hd, Good);
+      if not Good then
+         Status := Error_Heap_Full;
+         return;
+      end if;
+      Result := From_Handle (Hd);
+      Status := No_Error;
+   end Symbol_To_String_Prim;
+
+   procedure String_To_Symbol_Prim
+     (H      : in out Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      C    : Cell;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 1, 1, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      String_Cell (H, Arr (1), C, Good);
+      if not Good then
+         return;
+      end if;
+      Intern (H, C.Name (1 .. C.Name_Len), Result, Good);
+      if not Good then
+         Result := Void_Value;
+         Status := Error_Heap_Full;
+         return;
+      end if;
+      Status := No_Error;
+   end String_To_Symbol_Prim;
+
+   procedure Char_To_Integer_Prim
+     (H      : Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with Pre => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      Code : Unsigned_32;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 1, 1, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      if Arr (1).Kind /= Kind_Character then
+         return;
+      end if;
+      Code := To_Character (Arr (1));
+      if Code > Unsigned_32 (Fixnum_Max) then
+         Status := Error_Range;
+         return;
+      end if;
+      Result := From_Fixnum (Integer_64 (Code));
+      Status := No_Error;
+   end Char_To_Integer_Prim;
+
+   procedure Integer_To_Char_Prim
+     (H      : Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with Pre => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      N    : Fixnum;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 1, 1, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      Get_Fixnum (Arr (1), N, Good);
+      if not Good then
+         return;
+      end if;
+      if N < 0 or else N > 16#10FFFF# then
+         Status := Error_Range;
+         return;
+      end if;
+      Result := From_Character (Unsigned_32 (N));
+      Status := No_Error;
+   end Integer_To_Char_Prim;
+
    procedure Call
      (H      : in out Heap_Type;
       P      : Primitive_Id;
@@ -3320,7 +3644,9 @@ is
             List_Prim (H, Args, Result, Status);
 
          when P_Null_P | P_Pair_P | P_Not | P_String_P | P_Vector_P
-           | P_Bytevector_P | P_Port_P | P_Eof_Object_P =>
+           | P_Bytevector_P | P_Port_P | P_Eof_Object_P
+           | P_Boolean_P | P_Symbol_P | P_Char_P | P_Number_P
+           | P_Procedure_P =>
             Predicate (H, Args, P, Result, Status);
 
          when P_Eq_P =>
@@ -3477,6 +3803,27 @@ is
             end if;
             Result := From_Fixnum (Integer_64 (H.Free_Count));
             Status := No_Error;
+
+         when P_Set_Car =>
+            Set_Car_Prim (H, Args, Result, Status);
+
+         when P_Set_Cdr =>
+            Set_Cdr_Prim (H, Args, Result, Status);
+
+         when P_Caar | P_Cadr | P_Cdar | P_Cddr =>
+            Selector_Prim (H, Args, P, Result, Status);
+
+         when P_Symbol_To_String =>
+            Symbol_To_String_Prim (H, Args, Result, Status);
+
+         when P_String_To_Symbol =>
+            String_To_Symbol_Prim (H, Args, Result, Status);
+
+         when P_Char_To_Integer =>
+            Char_To_Integer_Prim (H, Args, Result, Status);
+
+         when P_Integer_To_Char =>
+            Integer_To_Char_Prim (H, Args, Result, Status);
 
          when P_None =>
             return;

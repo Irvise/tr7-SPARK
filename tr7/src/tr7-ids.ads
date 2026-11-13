@@ -71,6 +71,22 @@ is
       P_Eof_Object_P,
       P_Div,
       P_Error,
-      P_Values);
+      P_Values,
+      --  Basic R7RS procedures added after v1's initial subset.
+      P_Boolean_P,
+      P_Symbol_P,
+      P_Char_P,
+      P_Number_P,
+      P_Procedure_P,
+      P_Set_Car,
+      P_Set_Cdr,
+      P_Caar,
+      P_Cadr,
+      P_Cdar,
+      P_Cddr,
+      P_Symbol_To_String,
+      P_String_To_Symbol,
+      P_Char_To_Integer,
+      P_Integer_To_Char);
 
 end Tr7.Ids;

@@ -12,3 +12,7 @@
 (show (burn 6000))
 (show (> (free-cells) 500))
 (show (vector-ref v 1))
+(define cyc (cons 'a '()))
+(set-cdr! cyc cyc)
+(show (car cyc))
+(show (eq? (cdr cyc) cyc))

@@ -12,7 +12,7 @@ status=0
 stamp() { date +%s%N; }
 elapsed_ms() { echo $(( ($2 - $1) / 1000000 )); }
 
-for suite in smoke primitives errors arity gc forms malformed cond bad-cond case bad-case strings index vectors vindex bytevectors bvindex brange lists numbers numovf defs defbad apply map qq bad-qq do bad-do flonums ports bad-ports div error bad-error values bad-values callcc bad-callcc wind bad-wind; do
+for suite in smoke primitives core errors arity gc forms malformed cond bad-cond case bad-case strings index vectors vindex bytevectors bvindex brange lists numbers numovf defs defbad apply map qq bad-qq do bad-do flonums ports bad-ports div error bad-error values bad-values callcc bad-callcc wind bad-wind; do
    t0=$(stamp)
    "$root/tr7i/bin/tr7i" "$root/tests/$suite.scm" > "/tmp/tr7-$suite.out"
    t1=$(stamp)

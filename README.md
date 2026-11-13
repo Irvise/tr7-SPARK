@@ -74,6 +74,11 @@ rationals (`tests/div.scm`).
 `(error message irritant ...)` raises with a text the printer prefers over
 the generic code name (`tests/error.scm`).
 
+Core procedure coverage includes the type predicates `boolean?`, `symbol?`,
+`char?`, `number?` and `procedure?`; pair mutation with `set-car!`/`set-cdr!`;
+the selectors `caar`/`cadr`/`cdar`/`cddr`; `symbol->string` /
+`string->symbol`; and `char->integer` / `integer->char` (`tests/core.scm`).
+
 `values` and `call-with-values` are in (`tests/values.scm`): several
 values ride a wrapper cell that the evaluator spreads onto the consumer,
 one value stays itself, none becomes the empty wrapper.
