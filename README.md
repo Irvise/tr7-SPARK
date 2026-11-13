@@ -120,7 +120,12 @@ and recursive macros.  Expansion is non-hygienic, so an introduced binding can
 capture a caller's identifier; nested ellipses and an ellipsis followed by a
 dotted tail are not supported.
 
-Not yet present: real file ports and full hygienic `syntax-rules`.
+`(import ...)` is accepted as a compatibility declaration: there is no
+library system, but the core bindings are already in the initial environment,
+so R7RS scripts that open with `(import (scheme base))` run.
+
+Not yet present: real file ports, `load`, a real library system and full
+hygienic `syntax-rules`.
 
 ## Build
 

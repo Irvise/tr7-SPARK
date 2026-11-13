@@ -2741,6 +2741,16 @@ is
          return;
       end if;
 
+      if Is_Symbol_Named (H, Head, "import") then
+         --  There is no library system: the core bindings are already in the
+         --  initial environment, so accepting the declaration lets R7RS
+         --  scripts that begin with (import (scheme base) ...) run.  The
+         --  library names are not validated.
+         M.Result := Unspecified_Value;
+         M.Mode := Mode_Return;
+         return;
+      end if;
+
       if Is_Symbol_Named (H, Head, "let-values")
         or else Is_Symbol_Named (H, Head, "let*-values")
       then

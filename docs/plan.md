@@ -4,7 +4,7 @@
 
 M0–M5 are complete and the v1 scope below is implemented: the verified core,
 REPL and script runner, the C ABI subset, the conformance suites, and the
-mark-sweep reachability proof.  The gate is green at 3,600 checks (level 4,
+mark-sweep reachability proof.  The gate is green at 3,601 checks (level 4,
 5 s per check, `--checks-as-errors`), with no unproved, justified or assumed
 checks and 48 green suites (each also run under stress GC).
 
@@ -58,7 +58,8 @@ In v1:
 - REPL and script runner.
 
 Not in v1: full hygienic `syntax-rules` (a pragmatic subset is implemented),
-libraries/imports, `load`, records, SRFIs,
+a real library system (`import` is accepted as a compatibility declaration),
+`load`, records, SRFIs,
 full Unicode tables, bignums/rationals/complex, full re-entrant `call/cc`, the
 full TR7 debug/trace/extension API, and bit-level tagged-pointer ABI
 compatibility.

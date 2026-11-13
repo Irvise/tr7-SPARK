@@ -88,3 +88,6 @@
 (show (let-values (((x) 5)) x))
 (show (let-values ((() (values))) 'ok))
 (show (let-values (((a b . r) (values 1 2 3 4))) (list a b r)))
+
+(import (scheme base) (scheme write))
+(show 'imported)
