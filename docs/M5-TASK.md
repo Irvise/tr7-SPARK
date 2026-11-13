@@ -1,8 +1,9 @@
 # M5 — GC reachability proof: completion report
 
 **Status: M5 complete.  The M5 gate was green at 2,895 checks; it is now
-3,558 after the follow-up core-procedure, eval, sequence/number,
-`syntax-rules` and comparison/constructor batches, still with
+3,600 after the follow-up core-procedure, eval, sequence/number,
+`syntax-rules`, comparison/constructor and values-binding batches, still
+with
 0 unproved, 0 justified, 0 warnings and 48 suites green, each also run under stress GC
 (level 4, 5 s, `-j6`, `--checks-as-errors`).**  Last updated: 2026-11-13.
 

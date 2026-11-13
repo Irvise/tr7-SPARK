@@ -1890,6 +1890,126 @@ is
       Apply_Procedure (H, Proc, Heads, M, B);
    end Map_Next;
 
+   --  let-values and let*-values are source-to-source rewrites into nested
+   --  call-with-values forms; the existing K_Values machinery then does the
+   --  work.  The nesting gives let*-values semantics.  For let-values this
+   --  is a permissive superset: an initializer that refers to a name bound
+   --  by an earlier clause is accepted instead of being a scope error.
+   procedure Let_Values_To_Code
+     (H        : in out Heap_Type;
+      Bindings : Value;
+      Body_Forms : Value;
+      Result   : out Value;
+      Ok       : out Boolean;
+      Fuel     : Natural)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready,
+       Subprogram_Variant => (Decreases => Fuel)
+   is
+      Lambda_Sym : Value;
+      Begin_Sym  : Value;
+      CWv_Sym    : Value;
+      Binding    : Value;
+      Formals    : Value;
+      Init       : Value;
+      Rest       : Value;
+      Rest_Code  : Value;
+      Producer   : Value;
+      Consumer   : Value;
+      Nil_List   : Value := Nil_Value;
+      Item       : Value;
+      Item2      : Value;
+      Good       : Boolean;
+   begin
+      Result := Nil_Value;
+      Ok := False;
+      if Fuel = 0 then
+         return;
+      end if;
+      Intern (H, "begin", Begin_Sym, Good);
+      if not Good then
+         return;
+      end if;
+      if Is_Nil (Bindings) then
+         Cons (H, Begin_Sym, Body_Forms, Result, Ok);
+         return;
+      end if;
+      Intern (H, "lambda", Lambda_Sym, Good);
+      if not Good then
+         return;
+      end if;
+      Intern (H, "call-with-values", CWv_Sym, Good);
+      if not Good then
+         return;
+      end if;
+      Car_Of (H, Bindings, Binding, Good);
+      if not Good or else not Is_Handle (Binding) then
+         return;
+      end if;
+      Car_Of (H, Binding, Formals, Good);
+      if not Good then
+         return;
+      end if;
+      Cdr_Of (H, Binding, Rest, Good);
+      if not Good or else not Is_Handle (Rest) then
+         return;
+      end if;
+      Car_Of (H, Rest, Init, Good);
+      if not Good then
+         return;
+      end if;
+      Cdr_Of (H, Bindings, Rest, Good);
+      if not Good then
+         return;
+      end if;
+      Let_Values_To_Code (H, Rest, Body_Forms, Rest_Code, Good, Fuel - 1);
+      if not Good then
+         return;
+      end if;
+
+      --  (lambda () init)
+      Cons (H, Init, Nil_List, Item, Good);
+      if not Good then
+         return;
+      end if;
+      Cons (H, Nil_List, Item, Item2, Good);
+      if not Good then
+         return;
+      end if;
+      Cons (H, Lambda_Sym, Item2, Producer, Good);
+      if not Good then
+         return;
+      end if;
+      --  (lambda formals rest-code)
+      Cons (H, Rest_Code, Nil_List, Item, Good);
+      if not Good then
+         return;
+      end if;
+      Cons (H, Formals, Item, Item2, Good);
+      if not Good then
+         return;
+      end if;
+      Cons (H, Lambda_Sym, Item2, Consumer, Good);
+      if not Good then
+         return;
+      end if;
+      --  (call-with-values producer consumer)
+      Cons (H, Consumer, Nil_List, Item, Good);
+      if not Good then
+         return;
+      end if;
+      Cons (H, Producer, Item, Item2, Good);
+      if not Good then
+         return;
+      end if;
+      Cons (H, CWv_Sym, Item2, Result, Good);
+      if not Good then
+         return;
+      end if;
+      Ok := True;
+   end Let_Values_To_Code;
+
    procedure Eval_Pair
      (H : in out Heap_Type;
       M : in out Machine)
@@ -2618,6 +2738,30 @@ is
             M.Result := From_Handle (Root);
             M.Mode := Mode_Return;
          end;
+         return;
+      end if;
+
+      if Is_Symbol_Named (H, Head, "let-values")
+        or else Is_Symbol_Named (H, Head, "let*-values")
+      then
+         Cadr_Of (H, M.Ctl, Rest, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Cddr_Of (H, M.Ctl, Tail, Good);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         Let_Values_To_Code (H, Rest, Tail, Tmp, Good,
+                            Max_List_Length + 1);
+         if not Good then
+            Fail (M, Error_Malformed);
+            return;
+         end if;
+         M.Ctl := Tmp;
+         M.Mode := Mode_Eval;
          return;
       end if;
 

@@ -82,3 +82,9 @@
 (show (eqv? 1 1.0))
 (show (boolean=? #t #t #f))
 (show (symbol=? 'a 'a))
+
+(show (let-values (((a b) (values 1 2))) (+ a b)))
+(show (let*-values (((a b) (values 1 2)) ((c) (values (+ a b)))) c))
+(show (let-values (((x) 5)) x))
+(show (let-values ((() (values))) 'ok))
+(show (let-values (((a b . r) (values 1 2 3 4))) (list a b r)))

@@ -94,7 +94,9 @@ list utilities `char=?`/`char<?`/`char>?`/`char<=?`/`char>=?`,
 
 `values` and `call-with-values` are in (`tests/values.scm`): several
 values ride a wrapper cell that the evaluator spreads onto the consumer,
-one value stays itself, none becomes the empty wrapper.
+one value stays itself, none becomes the empty wrapper.  `let-values` and
+`let*-values` are rewritten into nested `call-with-values` forms
+(`tests/core.scm`).
 
 Restricted `call/cc` is in (`tests/callcc.scm`): an escape continuation
 valid within its dynamic extent -- the cell's own handle is its identity,
