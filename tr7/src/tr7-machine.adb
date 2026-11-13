@@ -1,3 +1,4 @@
+with Interfaces; use Interfaces;
 with Tr7.Cells; use Tr7.Cells;
 with Tr7.Env; use Tr7.Env;
 with Tr7.Macros;
@@ -64,6 +65,208 @@ is
       M.Top := M.Top - 1;
       Ok := True;
    end Pop;
+
+   --  Encode/decode one continuation frame as a seven-element list:
+   --  kind, Expr, Alt, Func, Args, Sym, Env.  Kept as heap data so a
+   --  continuation is a persistent snapshot and can be invoked more than
+   --  once.
+   procedure Frame_To_Code
+     (H : in out Heap_Type; F : Frame; Result : out Value; Ok : out Boolean)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Item : Value;
+      Tmp  : Value;
+   begin
+      Result := Nil_Value;
+      Cons (H, From_Handle (F.Env), Nil_Value, Item, Ok);
+      if not Ok then
+         return;
+      end if;
+      Cons (H, F.Sym, Item, Tmp, Ok);
+      if not Ok then
+         return;
+      end if;
+      Cons (H, F.Args, Tmp, Item, Ok);
+      if not Ok then
+         return;
+      end if;
+      Cons (H, F.Func, Item, Tmp, Ok);
+      if not Ok then
+         return;
+      end if;
+      Cons (H, F.Alt, Tmp, Item, Ok);
+      if not Ok then
+         return;
+      end if;
+      Cons (H, F.Expr, Item, Tmp, Ok);
+      if not Ok then
+         return;
+      end if;
+      Cons (H, From_Fixnum (Integer_64 (Frame_Kind'Pos (F.Kind))),
+            Tmp, Result, Ok);
+   end Frame_To_Code;
+
+   procedure Code_To_Frame
+     (H : Heap_Type; V : Value; F : out Frame; Ok : out Boolean)
+     with
+       Pre  => H.Ready,
+       Post => True
+   is
+      Cur  : Value := V;
+      Item : Value;
+      Next : Value;
+      Good : Boolean;
+      Pos  : Integer_64;
+   begin
+      F := (Kind => K_If, others => <>);
+      Ok := False;
+      Car_Of (H, Cur, Item, Good);
+      if not Good or else not Is_Fixnum (Item) then
+         return;
+      end if;
+      Pos := Item.N;
+      if Pos < 0 or else Pos > Integer_64 (Frame_Kind'Pos (Frame_Kind'Last))
+      then
+         return;
+      end if;
+      F.Kind := Frame_Kind'Val (Natural (Pos));
+      Cdr_Of (H, Cur, Next, Good);
+      if not Good then
+         return;
+      end if;
+      Cur := Next;
+      Car_Of (H, Cur, F.Expr, Good);
+      if not Good then
+         return;
+      end if;
+      Cdr_Of (H, Cur, Next, Good);
+      if not Good then
+         return;
+      end if;
+      Cur := Next;
+      Car_Of (H, Cur, F.Alt, Good);
+      if not Good then
+         return;
+      end if;
+      Cdr_Of (H, Cur, Next, Good);
+      if not Good then
+         return;
+      end if;
+      Cur := Next;
+      Car_Of (H, Cur, F.Func, Good);
+      if not Good then
+         return;
+      end if;
+      Cdr_Of (H, Cur, Next, Good);
+      if not Good then
+         return;
+      end if;
+      Cur := Next;
+      Car_Of (H, Cur, F.Args, Good);
+      if not Good then
+         return;
+      end if;
+      Cdr_Of (H, Cur, Next, Good);
+      if not Good then
+         return;
+      end if;
+      Cur := Next;
+      Car_Of (H, Cur, F.Sym, Good);
+      if not Good then
+         return;
+      end if;
+      Cdr_Of (H, Cur, Next, Good);
+      if not Good then
+         return;
+      end if;
+      Cur := Next;
+      Car_Of (H, Cur, Item, Good);
+      if not Good or else not Is_Handle (Item) then
+         return;
+      end if;
+      F.Env := To_Handle (Item);
+      Ok := True;
+   end Code_To_Frame;
+
+   procedure Capture_Stack
+     (H : in out Heap_Type; M : Machine; Cont : Handle; Ok : out Boolean)
+     with
+       Pre  => H.Ready and then Cont.Index in Valid_Cell_Index,
+       Post => H.Ready
+   is
+      Frames : Value := Nil_Value;
+      Frame_V : Value;
+      Tmp : Value;
+      Good : Boolean;
+   begin
+      Ok := False;
+      for I in reverse 1 .. M.Top loop
+         pragma Loop_Invariant (H.Ready);
+         Frame_To_Code (H, M.Stack (I), Frame_V, Good);
+         if not Good then
+            return;
+         end if;
+         Cons (H, Frame_V, Frames, Tmp, Good);
+         if not Good then
+            return;
+         end if;
+         Frames := Tmp;
+      end loop;
+      H.Cells (Cont.Index).Car := Frames;
+      H.Cells (Cont.Index).Cont_Depth := M.Top;
+      H.Cells (Cont.Index).Env := M.Env;
+      Ok := True;
+   end Capture_Stack;
+
+   procedure Restore_Stack
+     (H : Heap_Type;
+      M : in out Machine;
+      C : Cell;
+      Val : Value;
+      Ok : out Boolean)
+     with Pre => H.Ready
+   is
+      Cur : Value := C.Car;
+      Frame_V : Value;
+      F : Frame;
+      I : Natural := 0;
+      Good : Boolean;
+      Next : Value;
+   begin
+      Ok := False;
+      while I < C.Cont_Depth loop
+         pragma Loop_Invariant (H.Ready);
+         pragma Loop_Invariant (I <= C.Cont_Depth);
+         if not Is_Handle (Cur) then
+            return;
+         end if;
+         Car_Of (H, Cur, Frame_V, Good);
+         if not Good then
+            return;
+         end if;
+         Code_To_Frame (H, Frame_V, F, Good);
+         if not Good then
+            return;
+         end if;
+         I := I + 1;
+         M.Stack (I) := F;
+         Cdr_Of (H, Cur, Next, Good);
+         if not Good then
+            return;
+         end if;
+         Cur := Next;
+      end loop;
+      if not Is_Nil (Cur) then
+         return;
+      end if;
+      M.Top := I;
+      M.Env := C.Env;
+      M.Result := Val;
+      M.Mode := Mode_Return;
+      Ok := True;
+   end Restore_Stack;
 
    procedure Fail (M : in out Machine; E : Error_Code) is
    begin
@@ -212,11 +415,10 @@ is
 
       case C.Kind is
          when Cell_Continuation =>
-            --  Escape.  The captured frame must still be on the stack -- that
-            --  is what "within its dynamic extent" means here, and its Sym
-            --  is this very continuation's identity, so a stale cell cannot
-            --  match a later activation.  Found is also the unwind target:
-            --  everything above it is discarded when Top moves down.
+            --  A continuation is a persistent snapshot of the frames at the
+            --  call/cc form.  Invoking it restores those frames and delivers
+            --  the argument there; invoking it again restores the same
+            --  snapshot, so it is re-entrant and multi-shot.
             Car_Of (H, Args, First, Good);
             if not Good then
                Fail (M, Error_Wrong_Arity);
@@ -227,30 +429,12 @@ is
                Fail (M, Error_Wrong_Arity);
                return;
             end if;
-            Target := 0;
-            for I in 1 .. M.Top loop
-               pragma Loop_Invariant (I <= M.Top);
-               if M.Stack (I).Kind = K_CallCC_Recv
-                 and then Same_Value (M.Stack (I).Sym, Func)
-               then
-                  Target := I;
-                  exit;
-               end if;
-            end loop;
-            if Target = 0 then
-               Fail (M, Error_Continuation);
-               return;
-            end if;
+            Target := C.Cont_Depth;
 
-            --  Every wind the escape crosses has an after to run.  What
-            --  rides is the after *procedure*, already evaluated when the
-            --  form ran -- the wind frame holds it in Expr.  Cons prepends,
-            --  so the frames are scanned outwards-to-inwards and the list
-            --  comes out innermost first, which is the order R7RS requires
-            --  (the inner call's after runs before the outer's).  The list
-            --  is a local only until it is installed in the unwind frame
-            --  below, and the collector runs solely at the safe point
-            --  between steps, so nothing can collect it in between.
+            --  Every wind the escape discards has an after to run.  Frames
+            --  above the captured depth are the ones being crossed; the
+            --  after procedure was evaluated when the wind form ran and
+            --  rides in the frame's Expr.
             Wind := Nil_Value;
             for J in Target + 1 .. M.Top loop
                pragma Loop_Invariant (Target < J and then J <= M.Top);
@@ -264,18 +448,17 @@ is
                   Wind := New_Wind;
                end if;
             end loop;
-            M.Top := Target;
 
-            if Is_Nil (Wind) then
-               M.Result := First;
-               M.Mode := Mode_Return;
+            Restore_Stack (H, M, C, First, Good);
+            if not Good then
+               Fail (M, Error_Malformed);
                return;
             end if;
 
-            --  The unwind frame sits directly on the captured frame: when
-            --  its list runs out, popping it lands exactly on the target,
-            --  where the delivered value is received -- no index arithmetic
-            --  anywhere.
+            if Is_Nil (Wind) then
+               return;
+            end if;
+
             F := (Kind => K_Unwind,
                   Func => First,
                   Args => Wind,
@@ -2941,10 +3124,28 @@ is
             return;
          end if;
 
-         F := (Kind => K_CallCC,
-               Expr => Tmp,
-               Env  => M.Env,
-               others => <>);
+         declare
+            Cont : Handle;
+         begin
+            New_Continuation (H, Cont, Good);
+            if not Good then
+               Fail (M, Error_Heap_Full);
+               return;
+            end if;
+            --  Capture the stack at the call/cc form, before any trampoline
+            --  frame exists: a continuation is now a heap snapshot, so it is
+            --  re-entrant and call/cc itself can be a proper tail call.
+            Capture_Stack (H, M, Cont, Good);
+            if not Good then
+               Fail (M, Error_Heap_Full);
+               return;
+            end if;
+            F := (Kind => K_CallCC,
+                  Expr => Tmp,
+                  Sym  => From_Handle (Cont),
+                  Env  => M.Env,
+                  others => <>);
+         end;
          Push (M, F, Good);
          if not Good then
             Fail (M, Error_Step_Limit);
@@ -3383,7 +3584,6 @@ is
       F    : Frame;
       Good : Boolean;
       C    : Cell;
-      Hd   : Handle;
       New_Args : Value;
       Proper   : Value;
       First    : Value;
@@ -3748,34 +3948,17 @@ is
             Apply_Procedure (H, First, Nil_Value, M, B);
 
          when K_CallCC =>
-            --  The procedure has been evaluated: build the continuation,
-            --  stamp its identity into the trampoline frame, and call the
-            --  procedure with it as the single argument.
-            New_Continuation (H, Hd, Good);
+            --  The procedure has been evaluated.  The continuation was
+            --  captured before this frame was pushed; the frame is already
+            --  popped, so applying the procedure is in tail position and
+            --  call/cc adds no frame to the callee's dynamic extent.
+            Cons (H, F.Sym, Nil_Value, Rest, Good);
             if not Good then
                Fail (M, Error_Heap_Full);
-               return;
-            end if;
-            Cons (H, From_Handle (Hd), Nil_Value, Rest, Good);
-            if not Good then
-               Fail (M, Error_Heap_Full);
-               return;
-            end if;
-            F.Kind := K_CallCC_Recv;
-            F.Sym := From_Handle (Hd);
-            Push (M, F, Good);
-            if not Good then
-               Fail (M, Error_Step_Limit);
                return;
             end if;
             First := M.Result;
             Apply_Procedure (H, First, Rest, M, B);
-
-         when K_CallCC_Recv =>
-            --  The procedure returned on its own path (an escape rewound
-            --  the stack itself before landing here), so the value that was
-            --  just delivered is this form's.
-            M.Mode := Mode_Return;
 
          when K_Values =>
             --  The consumer has been evaluated; its value goes into Func

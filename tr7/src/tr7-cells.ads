@@ -50,6 +50,9 @@ is
       --  Heap.Epoch after every sweep, which retires all earlier marks in one
       --  assignment instead of a pass over the arena (see Tr7.Heap).
       Mark_Epoch : Unsigned_64 := 0;
+      --  Continuation cells only: the stack depth captured with the
+      --  continuation.  Zero for every other kind.
+      Cont_Depth : Natural range 0 .. Max_Cells := 0;
 
       --  Pair, closure parameters/body, environment bindings.
       Car : Value := Nil_Value;

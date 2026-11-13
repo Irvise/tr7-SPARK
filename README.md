@@ -8,7 +8,7 @@ interpreter, with a REPL, a C ABI subset, and a verified core.
 Milestones M0–M5 are complete.  The REPL evaluates the core R7RS forms
 (literals, `quote`, `if`, `lambda`, `define`, `set!`, `begin`, applications,
 the derived binding and conditional forms, `do`, `quasiquote`, `map`,
-`for-each`, `apply`, `values`, restricted `call/cc` and `dynamic-wind`), a
+`for-each`, `apply`, `values`, re-entrant `call/cc` and `dynamic-wind`), a
 broad primitive set, and a C ABI subset.  The core uses handles, a fixed cell
 arena and a CEK evaluator, and its mark-sweep collector is proved at SPARK
 level 4: every cell reachable from a root is marked and never swept.
@@ -98,10 +98,11 @@ one value stays itself, none becomes the empty wrapper.  `let-values` and
 `let*-values` are rewritten into nested `call-with-values` forms
 (`tests/core.scm`).
 
-Restricted `call/cc` is in (`tests/callcc.scm`): an escape continuation
-valid within its dynamic extent -- the cell's own handle is its identity,
-the stack scan finds its frame, and invoking outside the extent reports
-`continuation expired`.
+`call/cc` is re-entrant (`tests/callcc.scm`, `tests/callcc-multi.scm`): a
+continuation is a persistent heap snapshot of the frames, so it can be
+invoked more than once, and call/cc in tail position adds no frame.  Escaping
+across `dynamic-wind` runs the crossed `after` procedures innermost first;
+re-entering a wind does not re-run its `before` yet.
 
 `dynamic-wind` is in (`tests/wind.scm`): `before`, `thunk` and `after`
 are called around the extent, the form returns the thunk's value, and an
@@ -124,11 +125,12 @@ dotted tail are not supported.
 library system, but the core bindings are already in the initial environment,
 so R7RS scripts that open with `(import (scheme base))` run.
 
-Known limits: `call/cc` holds one continuation frame per dynamic extent, so
-recursion through it is not a proper tail call; `+inf.0`/`-inf.0`/`+nan.0`
-are written by the printer but not accepted by the reader.  Not yet present:
-real file ports, `load`, a real library system and full hygienic
-`syntax-rules`.
+`+inf.0`, `-inf.0` and `+nan.0` are both written and read (`tests/core.scm`);
+the constants come from the standard Ada elementary-function library in the
+small trusted `Tr7.IEEE` boundary.  Known limits: re-entering a
+`dynamic-wind` extent through a continuation restores its frames but does not
+re-run `before`.  Not yet present: real file ports, `load`, a real library
+system and full hygienic `syntax-rules`.
 
 ## Build
 

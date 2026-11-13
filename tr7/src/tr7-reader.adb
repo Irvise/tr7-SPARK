@@ -2,6 +2,7 @@ with Ada.Characters.Latin_1; use Ada.Characters.Latin_1;
 with Interfaces; use Interfaces;
 with Tr7.Cells; use Tr7.Cells;
 with Tr7.Config; use Tr7.Config;
+with Tr7.IEEE;
 with Tr7.Pairs; use Tr7.Pairs;
 
 package body Tr7.Reader with
@@ -1139,6 +1140,24 @@ is
       end if;
       if Len = 1 and then Buf (1) = '.' then
          --  A lone dot is the dotted-pair marker, not a symbol.
+         return;
+      end if;
+
+      if Len = 6 and then Buf (1 .. 6) = "+inf.0" then
+         Result := From_Flonum (Tr7.IEEE.Plus_Infinity);
+         Status := Read_Ok;
+         return;
+      elsif Len = 6 and then Buf (1 .. 6) = "-inf.0" then
+         Result := From_Flonum (Tr7.IEEE.Minus_Infinity);
+         Status := Read_Ok;
+         return;
+      elsif Len = 6 and then Buf (1 .. 6) = "+nan.0" then
+         Result := From_Flonum (Tr7.IEEE.NaN);
+         Status := Read_Ok;
+         return;
+      elsif Len = 6 and then Buf (1 .. 6) = "-nan.0" then
+         Result := From_Flonum (Tr7.IEEE.NaN);
+         Status := Read_Ok;
          return;
       end if;
 

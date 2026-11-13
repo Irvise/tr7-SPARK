@@ -12,7 +12,7 @@ status=0
 stamp() { date +%s%N; }
 elapsed_ms() { echo $(( ($2 - $1) / 1000000 )); }
 
-suites="smoke primitives core macro bad-macro bad-eval bad-dot bad-cycle bad-map errors arity gc forms malformed cond bad-cond case bad-case strings index vectors vindex bytevectors bvindex brange lists numbers numovf defs defbad apply map qq bad-qq do bad-do flonums ports bad-ports div error bad-error values bad-values callcc bad-callcc wind bad-wind"
+suites="smoke primitives core macro bad-macro bad-eval bad-dot bad-cycle bad-map errors arity gc forms malformed cond bad-cond case bad-case strings index vectors vindex bytevectors bvindex brange lists numbers numovf defs defbad apply map qq bad-qq do bad-do flonums ports bad-ports div error bad-error values bad-values callcc callcc-multi wind bad-wind"
 
 for suite in $suites; do
    t0=$(stamp)

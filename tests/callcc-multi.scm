@@ -1,0 +1,8 @@
+(define show (lambda (x) (write x) (newline)))
+(define k #f)
+(define count 0)
+(define (once) (+ 1 (call/cc (lambda (c) (set! k c) 1))))
+(show (once))
+(set! count (+ count 1))
+(if (= count 1) (k 10))
+(show 'done)

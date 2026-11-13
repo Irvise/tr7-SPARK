@@ -63,10 +63,6 @@ is
       --  call/cc: the procedure expression is being evaluated; its value
       --  arrives next, to be given the continuation held in Expr's result.
       K_CallCC,
-      --  call/cc: the trampoline the procedure was called through -- both
-      --  its normal return and an escape land here, and its Sym is the
-      --  continuation's identity.
-      K_CallCC_Recv,
       --  eval: the environment expression has been evaluated and its value
       --  waits in the popped frame's place; the expression to evaluate is in
       --  Expr and the environment to use is the result.

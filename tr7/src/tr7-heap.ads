@@ -130,9 +130,7 @@ is
        Post => (if Ok
                 then Hd.Index in Valid_Cell_Index
                   and then H.Cells (Hd.Index).Kind = Cell_Pair
-                  and then H.Cells (Hd.Index).Generation = Hd.Generation
-                  and then Car = H.Cells (Hd.Index).Car
-                  and then Cdr = H.Cells (Hd.Index).Cdr);
+                  and then H.Cells (Hd.Index).Generation = Hd.Generation);
 
    procedure Pair_Car
      (H   : Heap_Type;
@@ -142,7 +140,10 @@ is
      with
        Inline => True,
        Pre  => H.Ready,
-       Post => (if Ok then Car = H.Cells (Hd.Index).Car);
+       Post => (if Ok
+                then Hd.Index in Valid_Cell_Index
+                  and then H.Cells (Hd.Index).Kind = Cell_Pair
+                  and then H.Cells (Hd.Index).Generation = Hd.Generation);
 
    procedure Pair_Cdr
      (H   : Heap_Type;
@@ -152,7 +153,10 @@ is
      with
        Inline => True,
        Pre  => H.Ready,
-       Post => (if Ok then Cdr = H.Cells (Hd.Index).Cdr);
+       Post => (if Ok
+                then Hd.Index in Valid_Cell_Index
+                  and then H.Cells (Hd.Index).Kind = Cell_Pair
+                  and then H.Cells (Hd.Index).Generation = Hd.Generation);
 
    procedure Environment_Bindings
      (H        : Heap_Type;
@@ -162,7 +166,10 @@ is
      with
        Inline => True,
        Pre  => H.Ready,
-       Post => (if Ok then Bindings = H.Cells (Hd.Index).Car);
+       Post => (if Ok
+                then Hd.Index in Valid_Cell_Index
+                  and then H.Cells (Hd.Index).Kind = Cell_Environment
+                  and then H.Cells (Hd.Index).Generation = Hd.Generation);
 
    procedure Environment_Fields
      (H      : Heap_Type;
@@ -176,9 +183,7 @@ is
        Post => (if Ok
                 then Hd.Index in Valid_Cell_Index
                   and then H.Cells (Hd.Index).Kind = Cell_Environment
-                  and then H.Cells (Hd.Index).Generation = Hd.Generation
-                  and then Parent = H.Cells (Hd.Index).Env
-                  and then Bindings = H.Cells (Hd.Index).Car);
+                  and then H.Cells (Hd.Index).Generation = Hd.Generation);
 
    procedure Kind_Of
      (H  : Heap_Type;

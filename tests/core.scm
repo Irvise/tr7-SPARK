@@ -124,3 +124,6 @@
 (show #\null)
 (show #\return)
 (show (read (open-input-string "#\\alarm")))
+(show (read (open-input-string "+inf.0")))
+(show (read (open-input-string "-inf.0")))
+(show (read (open-input-string "+nan.0")))

@@ -53,19 +53,23 @@ with that value.  `case` evaluates its key first (`K_Case`), then scans each
 clause's datum list with `Same_Value` -- `memv`'s relation, and `eq?`'s --
 matching immediate values by content and heap values by identity.
 
-`call/cc` is the *restricted* form the plan specifies: an escape
-continuation, valid only within the dynamic extent that captured it.  The
-continuation cell carries no stack snapshot and no depth -- its own handle
-**is** the identity, stamped into the capturing frame's `Sym` -- so an
-invocation finds its frame by scanning the stack, and "is this still live"
-and "where do I deliver" become one test: a frame found is live (its Sym
-matches this very cell, so a stale continuation cannot reach a later
-activation), and its index is the unwind target -- everything above it is
-discarded when `Top` moves down.  A scan miss is `Error_Continuation`
-("continuation expired"), which `tests/bad-callcc.scm` triggers by saving a
-continuation past its extent.  The procedure runs through a trampoline
-frame (`K_CallCC_Recv`) that both its normal return and an escape land on,
-which is why the handler after the call needs no phase of its own.
+`call/cc` captures a **heap snapshot** of the continuation: the current
+frames, their environment and the stack depth are encoded into the
+continuation cell (`Car`, `Cont_Depth`, `Env`).  The cell is an ordinary
+heap object, so as many continuations as the arena allows can be created, and
+each one is persistent: invoking it restores the snapshot and delivers the
+argument there, and invoking the same continuation again restores it again
+(re-entrant, multi-shot).  No trampoline frame is kept for the procedure's
+extent -- the `K_CallCC` frame only carries the procedure expression while it
+is evaluated -- so `call/cc` in tail position is a proper tail call, and
+`tests/callcc-multi.scm` exercises re-entry.
+
+Invoking a continuation restores the captured frames and sets `Result`/
+`Mode_Return`; if the current stack is deeper, every crossed `K_Wind` frame's
+after procedure runs first, in innermost-first order, through the existing
+`K_Unwind` frame.  Re-entering a wind from a shallower stack restores its
+frames but does not re-run `before`: that is the one wind interaction left
+for a later continuation/wind model.
 
 `dynamic-wind before thunk after` is a procedure whose three expressions are
 evaluated once, left to right -- R7RS leaves operand order unspecified
@@ -78,16 +82,11 @@ an escape's scan looks for: it holds the after *procedure*, already
 evaluated when the form ran.  On an escape the crossed wind frames are
 scanned outwards and their afters consed, so the list runs innermost first
 as R7RS requires (the inner call's after before the outer's); the stack is
-then truncated to the captured frame and the unwind frame (`K_Unwind`) is
-pushed directly on top of it -- so arriving (list exhausted, value in
-`Func`) needs no index arithmetic: popping the unwind frame lands exactly
-on the target.  Because `call/cc` here is the restricted escape form, a
-completed extent's capture frame is gone, so a wind is never *re-entered*
-and `before` never re-runs; and because R7RS leaves the effect of entering
-or exiting a `before` or `after` extent through a captured continuation
-unspecified, an escape firing from inside an `after` during an unwind may
-abandon the afters still queued -- which is what v1 does, recorded rather
-than papered over (`tests/wind.scm`).
+then restored from the continuation snapshot and the unwind frame
+(`K_Unwind`) is pushed on top -- so arriving (list exhausted, value in
+`Func`) needs no index arithmetic.  An escape firing from inside an `after`
+during an unwind may abandon the afters still queued; R7RS leaves that
+effect unspecified, and v1 does the simple thing (`tests/wind.scm`).
 
 `call-with-values` runs in three phases with a frame kind each: evaluate
 the consumer and hold it (`K_Values`), evaluate the producer

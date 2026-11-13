@@ -81,7 +81,8 @@ Results, one entry per closed step of the plan:
 | `import` compatibility (accepted, no library system) | 3,601 |
 | review follow-up: arithmetic, cycle bounds, reader/writer, eval forms | 3,963 |
 | field-level heap accessors for pairs and environments | 4,008 |
-| character names, lone-dot rejection, C ABI pointer validation | **4,014** |
+| character names, lone-dot rejection, C ABI pointer validation | 4,014 |
+| re-entrant call/cc (heap continuation snapshots) + IEEE special values | **4,079** |
 
 Every row is 0 unproved, 0 justified, 0 warnings, with flow, initialization
 and non-aliasing fully proved and a warning-free build.
@@ -101,10 +102,13 @@ instead of asking the prover to reason about a wide multiply.
 
 ## Gold hardening audit (M5)
 
-At the accepted state (2026-11-13, 4,014 checks):
+At the accepted state (2026-11-13, 4,079 checks):
 
 - every unit under `tr7/src` is `SPARK_Mode => On`; `tr7i` and `tr7_c` are the
-  documented `SPARK_Mode => Off` trusted boundary;
+  documented `SPARK_Mode => Off` trusted boundary.  The three constant
+  functions in `Tr7.IEEE` have `SPARK_Mode => Off` bodies because their
+  values come from the Ada runtime's IEEE overflow behaviour; they return
+  only +Inf/-Inf/NaN and are recorded as a trusted boundary;
 - `grep` finds no `pragma Assume`, `pragma Annotate` or `pragma Suppress`
   under `tr7/src`;
 - `gnatprove.out` has an empty *Justified* and *Unproved* column, and every
@@ -117,13 +121,13 @@ Summary by obligation category from `gnatprove.out`:
 
 | category | checks | proved |
 | --- | --- | --- |
-| Initialization | 1,338 | 1,338 |
+| Initialization | 1,357 | 1,357 |
 | Non-Aliasing | 12 | 12 |
-| Run-time Checks | 890 | 890 |
-| Assertions | 402 | 402 |
-| Functional Contracts | 1,241 | 1,241 |
+| Run-time Checks | 900 | 900 |
+| Assertions | 406 | 406 |
+| Functional Contracts | 1,273 | 1,273 |
 | Termination | 131 | 131 (70 by flow analysis, 61 by the provers) |
-| **Total** | **4,014** | **4,014** |
+| **Total** | **4,079** | **4,079** |
 
 ### Contract review
 
