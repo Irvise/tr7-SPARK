@@ -190,16 +190,45 @@ reasoning.  Bindings are two association lists -- scalar pattern variables and
 ellipsis variables whose values are lists -- so a template ellipsis can
 iterate the repeated variables in lockstep.
 
-This is a pragmatic R7RS subset, and the limits are deliberate:
+Repetitions are trees, not flat lists.  A pattern variable under *d*
+ellipses maps to a value at depth *d*: a plain binding at depth zero, or an
+internal `Cell_Values` node whose `Car` is the list of the next level's trees.
+That cell kind is used only inside `Tr7.Macros` as a marker and never reaches
+the evaluator; the collector's kind-agnostic `Car`/`Cdr` marking keeps the
+trees alive.  Matching a repeated subpattern matches it once per element,
+`Rep_Add` appends the iteration's tree to each variable, and the whole
+accumulator is wrapped in one node per variable.  Template expansion carries a
+path of ellipsis indices; `Rep_Count` descends the tree along that path to find
+the length of the next level, so `((a b ...) ...)` expands at both depths.
 
-- literals, pattern variables, `_`, multiple rules and recursive macros work;
-- **one trailing ellipsis group per list level** is supported.  An ellipsis
-  followed by more pattern elements or a dotted tail does not match, and
-  nested ellipses are rejected by the matcher;
-- expansion is **non-hygienic**: an identifier introduced by a template is an
-  ordinary interned symbol.  Macros that introduce their own binders (the
-  usual `swap!` shape) work only when those names do not collide with the
-  caller's; full hygiene is future work.
+Hygiene is a lexical rename pass threaded through instantiation.  Pattern
+variables substitute; template identifiers are looked up in a rename
+environment (`old -> fresh`), and binding forms introduced by the template
+extend that environment for their scopes:
+
+- `lambda` binds its formals under a fresh name, and the body sees them;
+- `let` evaluates initializers outside the new names, `let*` grows the
+  environment one binding at a time, and `letrec`/`letrec*` put all names in
+  scope for every initializer and the body;
+- named `let` also renames the loop name for the body, not for the
+  initializers;
+- `do` renames its variables for the test, the steps and the body, while its
+  initializers run outside;
+- a body sequence is pre-scanned for internal `define`s (variable and
+  `(define (f x) ...)` shorthand), so each binder gets one fresh name that all
+  following body forms share, which is the letrec* scoping R7RS gives internal
+  definitions.
+
+A symbol that is a pattern variable is caller code and is never renamed; a
+literal or a free reference has no entry in the rename environment and keeps
+its name.  `quote` still substitutes pattern variables inside its datum but
+suspends renaming for the whole datum.  Fresh names are `%h` plus a zero-padded
+counter, generated per expansion with a heap scan that skips names already
+interned, so successive and nested expansions cannot collide.
+
+Limits remain deliberate: one trailing ellipsis group per list level, no
+ellipsis followed by a dotted tail, and binder positions that are themselves
+under an ellipsis are not given per-iteration hygienic names.
 
 The macro cell is an ordinary heap object with no new marking rule: its
 literals and rules are reachable through `Car`/`Cdr`, which the collector

@@ -1,11 +1,20 @@
 --  syntax-rules transformers.
 --
---  A pragmatic R7RS subset: literals, pattern variables, `_`, and one
---  trailing ellipsis group per list level.  Expansion is non-hygienic:
---  identifiers introduced by a template are ordinary interned symbols.  The
---  common macro shapes -- (name body ...), (name x y ...), nested lists with
---  a trailing ellipsis -- work; nested ellipses and ellipses followed by a
---  dotted tail are rejected (the rule simply does not match).
+--  Pattern matching supports literals, pattern variables, `_`, and nested
+--  ellipses, with one trailing repetition group per list level.  Repetitions
+--  are stored as trees: a variable under d ellipses maps to a value at depth
+--  d, represented by an internal Cell_Values node whose Car is the next
+--  level's list.  A path of ellipsis indices lets a template descend the
+--  tree, so (a b ...) ... and deeper nestings expand correctly.
+--
+--  Instantiation is hygienic for binders introduced by the template
+--  (lambda, let, let*, letrec, letrec*, named let, do and internal define):
+--  each binder is a fresh %h... symbol, and a lexical rename environment
+--  follows its scoped occurrences.  Pattern variables, literals and free
+--  references are left alone; quote contents are data (pattern variables
+--  inside them still substitute).  Not supported: an ellipsis followed by a
+--  dotted tail, a second repetition group at the same list level, and
+--  per-iteration names for binders that are themselves under an ellipsis.
 --
 --  This unit is separate from the evaluator so the recursive matcher and
 --  instantiator can be proved in isolation, with a fuel measure instead of
