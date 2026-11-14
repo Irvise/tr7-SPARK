@@ -116,11 +116,15 @@ linked and run by `test.sh` as `abi (C demo)`.  Every signature carries
 Pre/Post contracts that `-gnata` checks at run time; the bodies are the
 trusted boundary.
 
-`syntax-rules` macros are in (`tests/macro.scm`): literals, pattern
-variables, `_`, one trailing ellipsis group per list level, multiple rules
-and recursive macros.  Expansion is non-hygienic, so an introduced binding can
-capture a caller's identifier; nested ellipses and an ellipsis followed by a
-dotted tail are not supported.
+`syntax-rules` macros are in (`tests/macro.scm`, `tests/macro-hygiene.scm`):
+literals, pattern variables, `_`, nested ellipses (one trailing repetition
+group per list level), multiple rules, recursive macros and macro-generating
+macros.  Expansion is hygienic for binders introduced by the template --
+`lambda`, `let`, `let*`, `letrec`, `letrec*`, named `let`, `do` and internal
+`define` -- which are renamed to fresh `%h...` symbols together with their
+scoped occurrences; pattern variables, literals and free references keep their
+names, and `quote` contents are data.  An ellipsis followed by a dotted tail,
+or a second repetition group at the same list level, is still not supported.
 
 `(import ...)` is accepted: `(import (srfi 1))` loads a Scheme prelude with
 `filter`, `fold`/`fold-right`/`fold-left`, `any`, `every`, `find`, `take`,
@@ -131,8 +135,8 @@ constructors, predicates, accessors and modifiers (`tests/records.scm`).
 
 `+inf.0`, `-inf.0` and `+nan.0` are both written and read (`tests/core.scm`);
 the constants come from the standard Ada elementary-function library in the
-small trusted `Tr7.IEEE` boundary.  Not yet present: real file ports, `load`, a real library
-system and full hygienic `syntax-rules`.
+small trusted `Tr7.IEEE` boundary.  Not yet present: real file ports, `load`
+and a real library system.
 
 ## Build
 

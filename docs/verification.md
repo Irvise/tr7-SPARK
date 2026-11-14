@@ -20,8 +20,10 @@ The `tr7` crate is the verified core:
 This is not a machine-checked proof of R7RS semantics.  In particular:
 
 - libraries are out of v1 (a re-entrant `call/cc` is implemented);
-- `syntax-rules` is a pragmatic subset (non-hygienic, one trailing ellipsis
-  group per list level; no nested ellipses);
+- `syntax-rules` supports nested ellipses and hygiene for template-introduced
+  binders, but keeps one trailing repetition group per list level: no
+  ellipsis followed by a dotted tail, no second group at the same level, and
+  no per-iteration renaming of binders that are themselves under an ellipsis;
 - C ABI compatibility is function-level, not bit-level tagged-pointer
   compatibility.
 
@@ -85,7 +87,8 @@ Results, one entry per closed step of the plan:
 | re-entrant call/cc (heap continuation snapshots) + IEEE special values | 4,079 |
 | wind re-entry through continuations | 4,102 |
 | relaxed initialization of the GC root scratch array | 4,138 |
-| records, SRFI-1 prelude, cross-wind continuations | **4,412** |
+| records, SRFI-1 prelude, cross-wind continuations | 4,412 |
+| nested ellipses + hygienic template binders | **4,888** |
 
 Every row is 0 unproved, 0 justified, 0 warnings, with flow, initialization
 and non-aliasing fully proved and a warning-free build.
@@ -105,7 +108,7 @@ instead of asking the prover to reason about a wide multiply.
 
 ## Gold hardening audit (M5)
 
-At the accepted state (2026-11-13, 4,412 checks):
+At the accepted state (2026-11-14, 4,888 checks):
 
 - every unit under `tr7/src` is `SPARK_Mode => On`; `tr7i` and `tr7_c` are the
   documented `SPARK_Mode => Off` trusted boundary.  The three constant
@@ -124,13 +127,13 @@ Summary by obligation category from `gnatprove.out`:
 
 | category | checks | proved |
 | --- | --- | --- |
-| Initialization | 1,483 | 1,483 |
+| Initialization | 1,610 | 1,610 |
 | Non-Aliasing | 12 | 12 |
-| Run-time Checks | 920 | 920 |
-| Assertions | 432 | 432 |
-| Functional Contracts | 1,428 | 1,428 |
-| Termination | 137 | 137 (72 by flow analysis, 65 by the provers) |
-| **Total** | **4,412** | **4,412** |
+| Run-time Checks | 971 | 971 |
+| Assertions | 477 | 477 |
+| Functional Contracts | 1,646 | 1,646 |
+| Termination | 172 | 172 (75 by flow analysis, 97 by the provers) |
+| **Total** | **4,888** | **4,888** |
 
 ### Contract review
 
