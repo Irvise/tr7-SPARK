@@ -13,14 +13,18 @@ broad primitive set, and a C ABI subset.  The core uses handles, a fixed cell
 arena and a CEK evaluator, and its mark-sweep collector is proved at SPARK
 level 4: every cell reachable from a root is marked and never swept.
 
-The numeric tower has fixnums, bignums, exact rationals and IEEE flonums.
+The numeric tower has fixnums, bignums, exact rationals, complex numbers and
+IEEE flonums.
 Fixnum arithmetic keeps its proved fast path; a result that leaves the fixnum
 range promotes to an arbitrary-precision bignum (up to 256 decimal digits,
 `Max_Text`), and exact division that does not divide evenly produces a
 normalized rational (`(/ 1 2)` is `1/2`) -- `tests/tower.scm`.  The fixnum
 range still satisfies R7RS's index-range requirement and keeps the fast path's
 proof obligations inside what the SMT provers discharge in five seconds
-(`docs/findings.md`).
+(`docs/findings.md`).  Complex numbers are `Cell_Complex` pairs of real
+parts: arithmetic, equality, `real-part`/`imag-part`, `magnitude`,
+`make-rectangular`, `make-polar` and the `a+bi` reader/writer forms are in
+(`tests/tower.scm`).
 
 Mark-sweep GC runs at safe points (between evaluator steps), rooting the CEK
 state plus the global environment.  Tail calls push no frame, so recursion

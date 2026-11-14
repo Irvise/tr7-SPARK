@@ -147,6 +147,28 @@ What follows is what to keep, what cost time, and the rules that fall out.
   `To_Float`/`Scalar_To_Float` as procedures (with no recursion: a rational's
   parts are integers) was smaller than annotating the whole call chain.
 
+## Complex numbers
+
+- A complex value is a cell whose `Car`/`Cdr` are real parts, so the
+  collector needs no new rule and arithmetic can reuse the exact/inexact real
+  paths.  The only canonicalization is "an exact zero imaginary part is the
+  real value"; an inexact `0.0` stays complex so exactness is not lost.
+- The general numeric dispatch had to become a single `Add_Value` /
+  `Sub_Value` / `Mul_Value` / `Div_Value` layer: the flat fixnum/flonum and
+  the exact-rational branches now both fold through it, which is what makes a
+  mixed real/complex chain work without duplicating four algorithms.
+- The writer needs the sign of the imaginary part to decide between `+` and
+  `-`, and a "unit" test to print `i`/`-i`; both are small cell-kind walks,
+  not numeric conversions, so they cannot fail or allocate.
+- `magnitude` uses the trusted `Tr7.IEEE` square root with the same
+  bounded-product guards as the scalar float path; `make-polar` clamps the
+  library's sine and cosine to `[-1, 1]` so the product's range check has a
+  path fact instead of a contract on a `SPARK_Mode => Off` body.
+- The reader splits a complex token at the last sign that is not part of an
+  exponent and parses each half with the ordinary number reader.  A bare `i`
+  must stay a symbol (R7RS requires `+i`/`-i`); treating it as the unit broke
+  every loop variable named `i` in the suite.
+
 **Patterns worth reusing:**
 
 - *Epochs over clearing passes* -- the collector's mark became a scalar

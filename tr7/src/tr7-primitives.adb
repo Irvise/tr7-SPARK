@@ -144,6 +144,11 @@ is
          when P_Boolean_Equal      => return "boolean=?";
          when P_Symbol_Equal       => return "symbol=?";
          when P_Values_P           => return "values?";
+         when P_Make_Rectangular   => return "make-rectangular";
+         when P_Make_Polar         => return "make-polar";
+         when P_Real_Part          => return "real-part";
+         when P_Imag_Part          => return "imag-part";
+         when P_Magnitude          => return "magnitude";
       end case;
    end Name_Of;
 
@@ -2743,11 +2748,13 @@ is
    end Div_Prim;
 
    procedure Exact_To_Inexact_Prim
-     (H      : Heap_Type;
+     (H      : in out Heap_Type;
       Args   : Value;
       Result : out Value;
       Status : out Error_Code)
-     with Pre => H.Ready
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
    is
       Arr  : Value_Array;
       Len  : Natural;
@@ -4470,6 +4477,95 @@ is
       end loop;
    end Last_Pair_Prim;
 
+   procedure Complex_Constructor_Prim
+     (H      : in out Heap_Type;
+      Args   : Value;
+      Polar  : Boolean;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 2, 2, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      if Polar then
+         Tr7.Numbers.Make_Polar (H, Arr (1), Arr (2), Result, Status);
+      else
+         Tr7.Numbers.Make_Complex (H, Arr (1), Arr (2), Result, Status);
+      end if;
+   end Complex_Constructor_Prim;
+
+   procedure Complex_Selector_Prim
+     (H      : Heap_Type;
+      Args   : Value;
+      P      : Primitive_Id;
+      Result : out Value;
+      Status : out Error_Code)
+     with Pre => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 1, 1, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      if P = P_Real_Part then
+         Tr7.Numbers.Real_Part (H, Arr (1), Result, Status);
+      else
+         Tr7.Numbers.Imag_Part (H, Arr (1), Result, Status);
+      end if;
+   end Complex_Selector_Prim;
+
+   procedure Magnitude_Prim
+     (H      : in out Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 1, 1, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+      Tr7.Numbers.Magnitude (H, Arr (1), Result, Status);
+   end Magnitude_Prim;
+
    procedure Equal_Prim
      (H      : Heap_Type;
       Args   : Value;
@@ -4838,6 +4934,18 @@ is
 
          when P_Eqv_P | P_Boolean_Equal | P_Symbol_Equal =>
             Equal_Prim (H, Args, P, Result, Status);
+
+         when P_Make_Rectangular =>
+            Complex_Constructor_Prim (H, Args, False, Result, Status);
+
+         when P_Make_Polar =>
+            Complex_Constructor_Prim (H, Args, True, Result, Status);
+
+         when P_Real_Part | P_Imag_Part =>
+            Complex_Selector_Prim (H, Args, P, Result, Status);
+
+         when P_Magnitude =>
+            Magnitude_Prim (H, Args, Result, Status);
 
          when P_None =>
             return;

@@ -28,4 +28,25 @@ is
       return X - X;
    end NaN;
 
+   function Sqrt_Value (X : Long_Float) return Long_Float
+     with SPARK_Mode => Off
+   is
+   begin
+      return F.Sqrt (X);
+   end Sqrt_Value;
+
+   function Cos_Value (X : Long_Float) return Long_Float
+     with SPARK_Mode => Off
+   is
+   begin
+      return F.Cos (X);
+   end Cos_Value;
+
+   function Sin_Value (X : Long_Float) return Long_Float
+     with SPARK_Mode => Off
+   is
+   begin
+      return F.Sin (X);
+   end Sin_Value;
+
 end Tr7.IEEE;

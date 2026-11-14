@@ -188,11 +188,58 @@ is
       Status : out Error_Code)
      with Pre => H.Ready;
 
-   procedure Exact_To_Inexact
+   --  Complex constructors and selectors.  Parts are real values; a
+   --  zero exact imaginary part collapses to the real part.
+   procedure Make_Complex
+     (H      : in out Heap_Type;
+      Re     : Value;
+      Im     : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready;
+
+   procedure Make_Polar
+     (H      : in out Heap_Type;
+      R      : Value;
+      Theta  : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready;
+
+   procedure Real_Part
      (H      : Heap_Type;
       V      : Value;
       Result : out Value;
       Status : out Error_Code)
      with Pre => H.Ready;
+
+   procedure Imag_Part
+     (H      : Heap_Type;
+      V      : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with Pre => H.Ready;
+
+   procedure Magnitude
+     (H      : in out Heap_Type;
+      V      : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready;
+
+   procedure Exact_To_Inexact
+     (H      : in out Heap_Type;
+      V      : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready;
 
 end Tr7.Numbers;

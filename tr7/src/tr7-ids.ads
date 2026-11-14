@@ -129,6 +129,12 @@ is
       P_Eqv_P,
       P_Boolean_Equal,
       P_Symbol_Equal,
-      P_Values_P);
+      P_Values_P,
+      --  Complex numbers.
+      P_Make_Rectangular,
+      P_Make_Polar,
+      P_Real_Part,
+      P_Imag_Part,
+      P_Magnitude);
 
 end Tr7.Ids;

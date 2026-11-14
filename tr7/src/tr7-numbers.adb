@@ -5,6 +5,7 @@ with Interfaces; use Interfaces;
 with Tr7.Bignums; use Tr7.Bignums;
 with Tr7.Cells; use Tr7.Cells;
 with Tr7.Config; use Tr7.Config;
+with Tr7.IEEE;
 with Tr7.Reader;
 
 package body Tr7.Numbers with
@@ -707,6 +708,647 @@ is
       Status := No_Error;
    end Float_Mul_All;
 
+   --  Split a number into real and imaginary parts; a real number has an
+   --  exact zero imaginary part.
+   procedure Decompose
+     (H  : Heap_Type;
+      V  : Value;
+      Re : out Value;
+      Im : out Value)
+     with Pre => H.Ready
+   is
+      C    : Cell;
+      Good : Boolean;
+   begin
+      Re := V;
+      Im := From_Fixnum (0);
+      if not Is_Handle (V) then
+         return;
+      end if;
+      Fetch (H, To_Handle (V), C, Good);
+      if Good and then C.Kind = Cell_Complex then
+         Re := C.Car;
+         Im := C.Cdr;
+      end if;
+   end Decompose;
+
+   function Is_Complex_Cell (H : Heap_Type; V : Value) return Boolean
+     with Pre => H.Ready
+   is
+   begin
+      return Kind_Of_Value (H, V) = Cell_Complex;
+   end Is_Complex_Cell;
+
+   function Any_Complex
+     (H   : Heap_Type;
+      Arr : Value_Array;
+      Len : Natural) return Boolean
+   is
+      Res : Boolean := False;
+   begin
+      if Len > Arr'Length then
+         return False;
+      end if;
+      for I in 1 .. Len loop
+         pragma Loop_Invariant (Len <= Arr'Length);
+         if Is_Complex_Cell (H, Arr (I)) then
+            Res := True;
+         end if;
+      end loop;
+      return Res;
+   end Any_Complex;
+
+   procedure Make_Complex
+     (H      : in out Heap_Type;
+      Re     : Value;
+      Im     : Value;
+      Result : out Value;
+      Status : out Error_Code)
+   is
+      Hd   : Handle;
+      Good : Boolean;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      if not Is_Number (H, Re) or else not Is_Number (H, Im) then
+         return;
+      end if;
+      if not Is_Real_Value (H, Re) or else not Is_Real_Value (H, Im) then
+         return;
+      end if;
+      if Is_Zero_Real (H, Im) and then Is_Exact (H, Im) then
+         Result := Re;
+         Status := No_Error;
+         return;
+      end if;
+      New_Complex (H, Re, Im, Hd, Good);
+      if not Good then
+         Status := Error_Heap_Full;
+         return;
+      end if;
+      Result := From_Handle (Hd);
+      Status := No_Error;
+   end Make_Complex;
+
+   procedure Make_Polar
+     (H      : in out Heap_Type;
+      R      : Value;
+      Theta  : Value;
+      Result : out Value;
+      Status : out Error_Code)
+   is
+      RF, TF : Long_Float;
+      GR, GT : Boolean;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      if not Is_Real_Value (H, R) or else not Is_Real_Value (H, Theta) then
+         return;
+      end if;
+      To_Float (H, R, RF, GR);
+      To_Float (H, Theta, TF, GT);
+      if not GR or else not GT then
+         Status := Error_Overflow;
+         return;
+      end if;
+      declare
+         C : Long_Float := Tr7.IEEE.Cos_Value (TF);
+         S : Long_Float := Tr7.IEEE.Sin_Value (TF);
+      begin
+         --  The standard library's cosine and sine are bounded by one;
+         --  the clamps make that a path fact for the product's range
+         --  check without a contract on the trusted body.
+         if not Float_In_Range (C) or else abs C > 1.0 then
+            C := 0.0;
+         end if;
+         if not Float_In_Range (S) or else abs S > 1.0 then
+            S := 0.0;
+         end if;
+         if not Float_In_Range (RF) then
+            Status := Error_Overflow;
+            return;
+         end if;
+         Make_Complex
+           (H, From_Flonum (RF * C), From_Flonum (RF * S), Result, Status);
+      end;
+   end Make_Polar;
+
+   procedure Real_Part
+     (H      : Heap_Type;
+      V      : Value;
+      Result : out Value;
+      Status : out Error_Code)
+   is
+      Re, Im : Value;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      if not Is_Number (H, V) then
+         return;
+      end if;
+      Decompose (H, V, Re, Im);
+      pragma Unreferenced (Im);
+      Result := Re;
+      Status := No_Error;
+   end Real_Part;
+
+   procedure Imag_Part
+     (H      : Heap_Type;
+      V      : Value;
+      Result : out Value;
+      Status : out Error_Code)
+   is
+      Re, Im : Value;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      if not Is_Number (H, V) then
+         return;
+      end if;
+      Decompose (H, V, Re, Im);
+      pragma Unreferenced (Re);
+      Result := Im;
+      Status := No_Error;
+   end Imag_Part;
+
+   procedure Magnitude
+     (H      : in out Heap_Type;
+      V      : Value;
+      Result : out Value;
+      Status : out Error_Code)
+   is
+      Re, Im : Value;
+      X, Y   : Long_Float;
+      GX, GY : Boolean;
+      Sq     : Long_Float;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      if not Is_Number (H, V) then
+         return;
+      end if;
+      if not Is_Complex_Cell (H, V) then
+         Abs_Value (H, V, Result, Status);
+         return;
+      end if;
+      Decompose (H, V, Re, Im);
+      To_Float (H, Re, X, GX);
+      To_Float (H, Im, Y, GY);
+      if not GX or else not GY
+        or else not Float_In_Range (X) or else not Float_In_Range (Y)
+        or else abs X > 1.0E154 or else abs Y > 1.0E154
+      then
+         Status := Error_Overflow;
+         return;
+      end if;
+      declare
+         XS : constant Long_Float := X * X;
+         YS : constant Long_Float := Y * Y;
+      begin
+         if abs XS > Long_Float'Last / 2.0
+           or else abs YS > Long_Float'Last / 2.0
+         then
+            Status := Error_Overflow;
+            return;
+         end if;
+         Sq := XS + YS;
+      end;
+      if not Float_In_Range (Sq) then
+         Status := Error_Overflow;
+         return;
+      end if;
+      Result := From_Flonum (Tr7.IEEE.Sqrt_Value (Sq));
+      Status := No_Error;
+   end Magnitude;
+
+   --  One real operation on parts that may be exact or inexact.  Exact
+   --  operands take the rational path; one flonum makes the result a
+   --  double, with the same guarded arithmetic the flat float path uses.
+   procedure Real_Plus
+     (H      : in out Heap_Type;
+      A      : Value;
+      B      : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      X, Y : Long_Float;
+      GX, GY : Boolean;
+   begin
+      if Is_Flonum (A) or else Is_Flonum (B) then
+         To_Float (H, A, X, GX);
+         To_Float (H, B, Y, GY);
+         if not GX or else not GY then
+            Result := Void_Value;
+            Status := Error_Overflow;
+            return;
+         end if;
+         if Float_In_Range (X) and then Float_In_Range (Y)
+           and then (abs X <= 1.0 or else abs Y <= 1.0
+                     or else (abs X <= Long_Float'Last / 2.0
+                              and then abs Y <= Long_Float'Last / 2.0))
+         then
+            Result := From_Flonum (X + Y);
+            Status := No_Error;
+         else
+            Result := Void_Value;
+            Status := Error_Overflow;
+         end if;
+         return;
+      end if;
+      Real_Add (H, A, B, Result, Status);
+   end Real_Plus;
+
+   procedure Real_Minus
+     (H      : in out Heap_Type;
+      A      : Value;
+      B      : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      X, Y : Long_Float;
+      GX, GY : Boolean;
+   begin
+      if Is_Flonum (A) or else Is_Flonum (B) then
+         To_Float (H, A, X, GX);
+         To_Float (H, B, Y, GY);
+         if not GX or else not GY then
+            Result := Void_Value;
+            Status := Error_Overflow;
+            return;
+         end if;
+         if Float_In_Range (X) and then Float_In_Range (Y)
+           and then (abs X <= 1.0 or else abs Y <= 1.0
+                     or else (abs X <= Long_Float'Last / 2.0
+                              and then abs Y <= Long_Float'Last / 2.0))
+         then
+            Result := From_Flonum (X - Y);
+            Status := No_Error;
+         else
+            Result := Void_Value;
+            Status := Error_Overflow;
+         end if;
+         return;
+      end if;
+      Real_Sub (H, A, B, Result, Status);
+   end Real_Minus;
+
+   procedure Real_Times
+     (H      : in out Heap_Type;
+      A      : Value;
+      B      : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      X, Y : Long_Float;
+      GX, GY : Boolean;
+   begin
+      if Is_Flonum (A) or else Is_Flonum (B) then
+         To_Float (H, A, X, GX);
+         To_Float (H, B, Y, GY);
+         if not GX or else not GY then
+            Result := Void_Value;
+            Status := Error_Overflow;
+            return;
+         end if;
+         if Float_In_Range (X) and then Float_In_Range (Y)
+           and then (abs X <= 1.0 or else abs Y <= 1.0
+                     or else (abs X <= 1.3E154 and then abs Y <= 1.3E154)
+                     or else (abs X <= Long_Float'Last / 2.0
+                              and then abs Y <= 2.0))
+         then
+            Result := From_Flonum (X * Y);
+            Status := No_Error;
+         else
+            Result := Void_Value;
+            Status := Error_Overflow;
+         end if;
+         return;
+      end if;
+      Real_Mul (H, A, B, Result, Status);
+   end Real_Times;
+
+   procedure Real_Quotient
+     (H      : in out Heap_Type;
+      A      : Value;
+      B      : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      X, Y : Long_Float;
+      GX, GY : Boolean;
+   begin
+      if Is_Flonum (A) or else Is_Flonum (B) then
+         To_Float (H, A, X, GX);
+         To_Float (H, B, Y, GY);
+         if not GX or else not GY then
+            Result := Void_Value;
+            Status := Error_Overflow;
+            return;
+         end if;
+         Safe_Divide (X, Y, X, Status);
+         if Status = No_Error then
+            Result := From_Flonum (X);
+         else
+            Result := Void_Value;
+         end if;
+         return;
+      end if;
+      Real_Div (H, A, B, Result, Status);
+   end Real_Quotient;
+
+   procedure Negate_Value
+     (H      : in out Heap_Type;
+      V      : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      Re, Im : Value;
+      NR, NI : Value;
+      St     : Error_Code;
+   begin
+      if Is_Complex_Cell (H, V) then
+         Decompose (H, V, Re, Im);
+         Real_Minus (H, From_Fixnum (0), Re, NR, St);
+         if St /= No_Error then
+            Result := Void_Value;
+            Status := St;
+            return;
+         end if;
+         Real_Minus (H, From_Fixnum (0), Im, NI, St);
+         if St /= No_Error then
+            Result := Void_Value;
+            Status := St;
+            return;
+         end if;
+         Make_Complex (H, NR, NI, Result, Status);
+         return;
+      end if;
+      Negate (H, V, Result, Status);
+   end Negate_Value;
+
+   procedure Add_Value
+     (H      : in out Heap_Type;
+      A      : Value;
+      B      : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      RA, IA, RB, IB : Value;
+      R, I           : Value;
+      St             : Error_Code;
+   begin
+      if Is_Complex_Cell (H, A) or else Is_Complex_Cell (H, B) then
+         Decompose (H, A, RA, IA);
+         Decompose (H, B, RB, IB);
+         Real_Plus (H, RA, RB, R, St);
+         if St /= No_Error then
+            Result := Void_Value;
+            Status := St;
+            return;
+         end if;
+         Real_Plus (H, IA, IB, I, St);
+         if St /= No_Error then
+            Result := Void_Value;
+            Status := St;
+            return;
+         end if;
+         Make_Complex (H, R, I, Result, Status);
+         return;
+      end if;
+      Real_Plus (H, A, B, Result, Status);
+   end Add_Value;
+
+   procedure Sub_Value
+     (H      : in out Heap_Type;
+      A      : Value;
+      B      : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      RA, IA, RB, IB : Value;
+      R, I           : Value;
+      St             : Error_Code;
+   begin
+      if Is_Complex_Cell (H, A) or else Is_Complex_Cell (H, B) then
+         Decompose (H, A, RA, IA);
+         Decompose (H, B, RB, IB);
+         Real_Minus (H, RA, RB, R, St);
+         if St /= No_Error then
+            Result := Void_Value;
+            Status := St;
+            return;
+         end if;
+         Real_Minus (H, IA, IB, I, St);
+         if St /= No_Error then
+            Result := Void_Value;
+            Status := St;
+            return;
+         end if;
+         Make_Complex (H, R, I, Result, Status);
+         return;
+      end if;
+      Real_Minus (H, A, B, Result, Status);
+   end Sub_Value;
+
+   procedure Mul_Value
+     (H      : in out Heap_Type;
+      A      : Value;
+      B      : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      RA, IA, RB, IB : Value;
+      P, Q, R, I     : Value;
+      St             : Error_Code;
+   begin
+      if Is_Complex_Cell (H, A) or else Is_Complex_Cell (H, B) then
+         Decompose (H, A, RA, IA);
+         Decompose (H, B, RB, IB);
+         --  (a+bi)(c+di) = (ac-bd) + (ad+bc)i
+         Real_Times (H, RA, RB, P, St);
+         if St /= No_Error then
+            Result := Void_Value; Status := St; return;
+         end if;
+         Real_Times (H, IA, IB, Q, St);
+         if St /= No_Error then
+            Result := Void_Value; Status := St; return;
+         end if;
+         Real_Minus (H, P, Q, R, St);
+         if St /= No_Error then
+            Result := Void_Value; Status := St; return;
+         end if;
+         Real_Times (H, RA, IB, P, St);
+         if St /= No_Error then
+            Result := Void_Value; Status := St; return;
+         end if;
+         Real_Times (H, IA, RB, Q, St);
+         if St /= No_Error then
+            Result := Void_Value; Status := St; return;
+         end if;
+         Real_Plus (H, P, Q, I, St);
+         if St /= No_Error then
+            Result := Void_Value; Status := St; return;
+         end if;
+         Make_Complex (H, R, I, Result, Status);
+         return;
+      end if;
+      Real_Times (H, A, B, Result, Status);
+   end Mul_Value;
+
+   procedure Div_Value
+     (H      : in out Heap_Type;
+      A      : Value;
+      B      : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
+   is
+      RA, IA, RB, IB : Value;
+      D, P, Q, R, I  : Value;
+      St             : Error_Code;
+   begin
+      if Is_Complex_Cell (H, A) or else Is_Complex_Cell (H, B) then
+         Decompose (H, A, RA, IA);
+         Decompose (H, B, RB, IB);
+         --  (a+bi)/(c+di) = ((ac+bd) + (bc-ad)i) / (c*c + d*d)
+         Real_Times (H, RB, RB, P, St);
+         if St /= No_Error then
+            Result := Void_Value; Status := St; return;
+         end if;
+         Real_Times (H, IB, IB, Q, St);
+         if St /= No_Error then
+            Result := Void_Value; Status := St; return;
+         end if;
+         Real_Plus (H, P, Q, D, St);
+         if St /= No_Error then
+            Result := Void_Value; Status := St; return;
+         end if;
+         if Is_Zero_Real (H, D) then
+            Result := Void_Value;
+            Status := Error_Division_By_Zero;
+            return;
+         end if;
+         Real_Times (H, RA, RB, P, St);
+         if St /= No_Error then
+            Result := Void_Value; Status := St; return;
+         end if;
+         Real_Times (H, IA, IB, Q, St);
+         if St /= No_Error then
+            Result := Void_Value; Status := St; return;
+         end if;
+         declare
+            Sum : Value;
+         begin
+            Real_Plus (H, P, Q, Sum, St);
+            if St /= No_Error then
+               Result := Void_Value; Status := St; return;
+            end if;
+            Real_Quotient (H, Sum, D, R, St);
+         end;
+         if St /= No_Error then
+            Result := Void_Value; Status := St; return;
+         end if;
+         if St /= No_Error then
+            Result := Void_Value; Status := St; return;
+         end if;
+         Real_Times (H, IA, RB, P, St);
+         if St /= No_Error then
+            Result := Void_Value; Status := St; return;
+         end if;
+         Real_Times (H, RA, IB, Q, St);
+         if St /= No_Error then
+            Result := Void_Value; Status := St; return;
+         end if;
+         declare
+            Dif : Value;
+         begin
+            Real_Minus (H, P, Q, Dif, St);
+            if St /= No_Error then
+               Result := Void_Value; Status := St; return;
+            end if;
+            Real_Quotient (H, Dif, D, I, St);
+         end;
+         if St /= No_Error then
+            Result := Void_Value; Status := St; return;
+         end if;
+         if St /= No_Error then
+            Result := Void_Value; Status := St; return;
+         end if;
+         Make_Complex (H, R, I, Result, Status);
+         return;
+      end if;
+      Real_Quotient (H, A, B, Result, Status);
+   end Div_Value;
+
+   procedure Real_Equal
+     (H      : Heap_Type;
+      A      : Value;
+      B      : Value;
+      Result : out Boolean)
+     with Pre => H.Ready
+   is
+      X, Y   : Long_Float;
+      GX, GY : Boolean;
+      Cmp    : Integer;
+      Ok     : Boolean;
+   begin
+      if Is_Exact_Real (H, A) and then Is_Exact_Real (H, B) then
+         Compare_Real (H, A, B, Cmp, Ok);
+         Result := Ok and then Cmp = 0;
+         return;
+      end if;
+      To_Float (H, A, X, GX);
+      To_Float (H, B, Y, GY);
+      Result := GX and then GY and then X = Y;
+   end Real_Equal;
+
+   procedure Numeric_Equal
+     (H      : Heap_Type;
+      A      : Value;
+      B      : Value;
+      Result : out Boolean)
+     with Pre => H.Ready
+   is
+      RA, IA, RB, IB : Value;
+      ER, EI         : Boolean;
+   begin
+      if not Is_Number (H, A) or else not Is_Number (H, B) then
+         Result := False;
+         return;
+      end if;
+      Decompose (H, A, RA, IA);
+      Decompose (H, B, RB, IB);
+      Real_Equal (H, RA, RB, ER);
+      Real_Equal (H, IA, IB, EI);
+      Result := ER and then EI;
+   end Numeric_Equal;
+
    procedure Add_All
      (H      : in out Heap_Type;
       Arr    : Value_Array;
@@ -714,17 +1356,19 @@ is
       Result : out Value;
       Status : out Error_Code)
    is
-      Conv : Value_Array;
-      Cur  : Value;
-      Tmp  : Value;
-      St   : Error_Code;
+      Conv   : Value_Array;
+      Cur    : Value;
+      Tmp    : Value;
+      St     : Error_Code;
+      Has_Cx : Boolean;
    begin
       Result := Void_Value;
       Status := Error_Type;
       if Len > Arr'Length then
          return;
       end if;
-      if Any_Float (Arr, Len) then
+      Has_Cx := Any_Complex (H, Arr, Len);
+      if not Has_Cx and then Any_Float (Arr, Len) then
          All_To_Float (H, Arr, Len, Conv, Status);
          if Status /= No_Error then
             return;
@@ -740,14 +1384,16 @@ is
       for I in 1 .. Len loop
          pragma Loop_Invariant (H.Ready);
          pragma Loop_Invariant (Len <= Arr'Length);
-         if not Is_Exact_Real (H, Arr (I)) then
+         if (if Has_Cx then not Is_Number (H, Arr (I))
+             else not Is_Exact_Real (H, Arr (I)))
+         then
             return;
          end if;
       end loop;
       Cur := Arr (1);
       for I in 2 .. Len loop
          pragma Loop_Invariant (H.Ready);
-         Real_Add (H, Cur, Arr (I), Tmp, St);
+         Add_Value (H, Cur, Arr (I), Tmp, St);
          if St /= No_Error then
             Status := St;
             return;
@@ -765,10 +1411,11 @@ is
       Result : out Value;
       Status : out Error_Code)
    is
-      Conv : Value_Array;
-      Cur  : Value;
-      Tmp  : Value;
-      St   : Error_Code;
+      Conv   : Value_Array;
+      Cur    : Value;
+      Tmp    : Value;
+      St     : Error_Code;
+      Has_Cx : Boolean;
    begin
       Result := Void_Value;
       Status := Error_Type;
@@ -779,7 +1426,8 @@ is
          Status := Error_Wrong_Arity;
          return;
       end if;
-      if Any_Float (Arr, Len) then
+      Has_Cx := Any_Complex (H, Arr, Len);
+      if not Has_Cx and then Any_Float (Arr, Len) then
          All_To_Float (H, Arr, Len, Conv, Status);
          if Status /= No_Error then
             return;
@@ -789,18 +1437,20 @@ is
       end if;
       for I in 1 .. Len loop
          pragma Loop_Invariant (H.Ready);
-         if not Is_Exact_Real (H, Arr (I)) then
+         if (if Has_Cx then not Is_Number (H, Arr (I))
+             else not Is_Exact_Real (H, Arr (I)))
+         then
             return;
          end if;
       end loop;
       if Len = 1 then
-         Negate (H, Arr (1), Result, Status);
+         Negate_Value (H, Arr (1), Result, Status);
          return;
       end if;
       Cur := Arr (1);
       for I in 2 .. Len loop
          pragma Loop_Invariant (H.Ready);
-         Real_Sub (H, Cur, Arr (I), Tmp, St);
+         Sub_Value (H, Cur, Arr (I), Tmp, St);
          if St /= No_Error then
             Status := St;
             return;
@@ -818,17 +1468,19 @@ is
       Result : out Value;
       Status : out Error_Code)
    is
-      Conv : Value_Array;
-      Cur  : Value;
-      Tmp  : Value;
-      St   : Error_Code;
+      Conv   : Value_Array;
+      Cur    : Value;
+      Tmp    : Value;
+      St     : Error_Code;
+      Has_Cx : Boolean;
    begin
       Result := Void_Value;
       Status := Error_Type;
       if Len > Arr'Length then
          return;
       end if;
-      if Any_Float (Arr, Len) then
+      Has_Cx := Any_Complex (H, Arr, Len);
+      if not Has_Cx and then Any_Float (Arr, Len) then
          All_To_Float (H, Arr, Len, Conv, Status);
          if Status /= No_Error then
             return;
@@ -838,14 +1490,16 @@ is
       end if;
       for I in 1 .. Len loop
          pragma Loop_Invariant (H.Ready);
-         if not Is_Exact_Real (H, Arr (I)) then
+         if (if Has_Cx then not Is_Number (H, Arr (I))
+             else not Is_Exact_Real (H, Arr (I)))
+         then
             return;
          end if;
       end loop;
       Cur := From_Fixnum (1);
       for I in 1 .. Len loop
          pragma Loop_Invariant (H.Ready);
-         Real_Mul (H, Cur, Arr (I), Tmp, St);
+         Mul_Value (H, Cur, Arr (I), Tmp, St);
          if St /= No_Error then
             Status := St;
             return;
@@ -895,10 +1549,11 @@ is
       Result : out Value;
       Status : out Error_Code)
    is
-      Conv : Value_Array;
-      Cur  : Value;
-      Tmp  : Value;
-      St   : Error_Code;
+      Conv   : Value_Array;
+      Cur    : Value;
+      Tmp    : Value;
+      St     : Error_Code;
+      Has_Cx : Boolean;
    begin
       Result := Void_Value;
       Status := Error_Type;
@@ -909,7 +1564,8 @@ is
          Status := Error_Wrong_Arity;
          return;
       end if;
-      if Any_Float (Arr, Len) then
+      Has_Cx := Any_Complex (H, Arr, Len);
+      if not Has_Cx and then Any_Float (Arr, Len) then
          All_To_Float (H, Arr, Len, Conv, Status);
          if Status /= No_Error then
             return;
@@ -919,18 +1575,20 @@ is
       end if;
       for I in 1 .. Len loop
          pragma Loop_Invariant (H.Ready);
-         if not Is_Exact_Real (H, Arr (I)) then
+         if (if Has_Cx then not Is_Number (H, Arr (I))
+             else not Is_Exact_Real (H, Arr (I)))
+         then
             return;
          end if;
       end loop;
       if Len = 1 then
-         Real_Div (H, From_Fixnum (1), Arr (1), Result, Status);
+         Div_Value (H, From_Fixnum (1), Arr (1), Result, Status);
          return;
       end if;
       Cur := Arr (1);
       for I in 2 .. Len loop
          pragma Loop_Invariant (H.Ready);
-         Real_Div (H, Cur, Arr (I), Tmp, St);
+         Div_Value (H, Cur, Arr (I), Tmp, St);
          if St /= No_Error then
             Status := St;
             return;
@@ -941,29 +1599,7 @@ is
       Status := No_Error;
    end Div_All;
 
-   --  Split a number into real and imaginary parts; a real number has an
-   --  exact zero imaginary part.
-   procedure Decompose
-     (H  : Heap_Type;
-      V  : Value;
-      Re : out Value;
-      Im : out Value)
-     with Pre => H.Ready
-   is
-      C    : Cell;
-      Good : Boolean;
-   begin
-      Re := V;
-      Im := From_Fixnum (0);
-      if not Is_Handle (V) then
-         return;
-      end if;
-      Fetch (H, To_Handle (V), C, Good);
-      if Good and then C.Kind = Cell_Complex then
-         Re := C.Car;
-         Im := C.Cdr;
-      end if;
-   end Decompose;
+
 
 
 
@@ -1143,6 +1779,24 @@ is
             return;
          end if;
       end loop;
+
+      if Any_Complex (H, Arr, Len) then
+         if Mode /= Cmp_Equal then
+            return;
+         end if;
+         for I in 2 .. Len loop
+            pragma Loop_Invariant (H.Ready);
+            declare
+               Same : Boolean;
+            begin
+               Numeric_Equal (H, Arr (I - 1), Arr (I), Same);
+               Res := Res and then Same;
+            end;
+         end loop;
+         Result := From_Boolean (Res);
+         Status := No_Error;
+         return;
+      end if;
 
       if Any_Float (Arr, Len) then
          for I in 2 .. Len loop
@@ -1334,11 +1988,12 @@ is
       Status := No_Error;
    end Min_Max;
 
-   procedure Exact_To_Inexact
+   procedure To_Inexact_Real
      (H      : Heap_Type;
       V      : Value;
       Result : out Value;
       Status : out Error_Code)
+     with Pre => H.Ready
    is
       X    : Long_Float;
       Good : Boolean;
@@ -1351,6 +2006,39 @@ is
       end if;
       Result := From_Flonum (X);
       Status := No_Error;
+   end To_Inexact_Real;
+
+   procedure Exact_To_Inexact
+     (H      : in out Heap_Type;
+      V      : Value;
+      Result : out Value;
+      Status : out Error_Code)
+   is
+      Re, Im   : Value;
+      NR, NI   : Value;
+      SR, SI   : Error_Code;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      if not Is_Number (H, V) then
+         return;
+      end if;
+      if not Is_Complex_Cell (H, V) then
+         To_Inexact_Real (H, V, Result, Status);
+         return;
+      end if;
+      Decompose (H, V, Re, Im);
+      To_Inexact_Real (H, Re, NR, SR);
+      if SR /= No_Error then
+         Status := SR;
+         return;
+      end if;
+      To_Inexact_Real (H, Im, NI, SI);
+      if SI /= No_Error then
+         Status := SI;
+         return;
+      end if;
+      Make_Complex (H, NR, NI, Result, Status);
    end Exact_To_Inexact;
 
 end Tr7.Numbers;

@@ -372,9 +372,19 @@ same forms.  The predicates `number?`, `integer?`, `rational?`, `real?`,
 and `even?` cover the new values, and `eqv?` compares numeric values with
 matching exactness while `=` compares across exactness.
 
-Complex numbers are not implemented yet: the cell kind and its place in the
-tower are documented but no constructor or reader syntax exists.  That is the
-remaining piece of the numeric-tower task.
+A complex number is `Cell_Complex` with `Car`/`Cdr` holding its real and
+imaginary parts as real values.  `Tr7.Numbers.Make_Complex` collapses an exact
+zero imaginary part to the real value; `make-polar` produces flonum parts
+through the trusted `Tr7.IEEE` sine and cosine.  Addition and subtraction are
+componentwise, multiplication and division use the usual cross terms, and a
+mixed real/complex operation promotes the real operand to an exact-zero
+imaginary part.  `eqv?` requires matching exactness per part, while `=` uses
+numeric equality; ordering comparisons reject a genuinely complex operand.
+The reader accepts `a+bi`, `a-bi`, `+i`, `-i` and a bare imaginary part (`2i`),
+but a bare `i` stays a symbol because R7RS requires the sign for the unit.
+The writer prints `a+bi`, `a-bi`, and uses the bare `i` / `-i` forms for unit
+imaginary parts.  Precedence is textual: the split is the last `+` or `-` that
+is not part of an exponent, so `1e3+2i` reads as expected.
 
 ## Flonums
 

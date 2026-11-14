@@ -646,7 +646,7 @@ is
 
    --  Is a real numeric value exactly one?  The complex writer prints the
    --  imaginaries 1 and -1 as the bare unit `i`.
-   function Is_Real_One
+   function Is_Real_Unit
      (H : Heap_Type;
       V : Value) return Boolean
    is
@@ -654,16 +654,19 @@ is
       Good : Boolean;
    begin
       if Is_Fixnum (V) then
-         return V.N = 1;
+         return V.N = 1 or else V.N = -1;
       elsif Is_Flonum (V) then
-         return V.F = 1.0;
+         return abs V.F = 1.0;
       elsif not Is_Handle (V) then
          return False;
       end if;
       Fetch (H, To_Handle (V), C, Good);
       return Good and then C.Kind = Cell_Bigint
-        and then C.Name_Len = 1 and then C.Name (1) = '1';
-   end Is_Real_One;
+        and then
+          ((C.Name_Len = 1 and then C.Name (1) = '1')
+           or else (C.Name_Len = 2 and then C.Name (1) = '-'
+                    and then C.Name (2) = '1'));
+   end Is_Real_Unit;
 
    procedure Write_Internal
      (H       : Heap_Type;
@@ -818,7 +821,7 @@ is
                         end if;
                         Neg := Negative_Real (H, Im);
                         if Neg then
-                           if Is_Real_One (H, Im) then
+                           if Is_Real_Unit (H, Im) then
                               Put (B, "-i", Ok);
                            else
                               Write_Internal
@@ -834,7 +837,7 @@ is
                            if not Ok then
                               return;
                            end if;
-                           if Is_Real_One (H, Im) then
+                           if Is_Real_Unit (H, Im) then
                               Put (B, 'i', Ok);
                            else
                               Write_Internal
