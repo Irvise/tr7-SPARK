@@ -14,6 +14,7 @@ is
       H.Mark_Top := 0;
       H.Mark_Failed := False;
       H.Stress_GC := False;
+      H.Last_Freed := 0;
 
       for I in Valid_Cell_Index loop
          pragma Loop_Invariant

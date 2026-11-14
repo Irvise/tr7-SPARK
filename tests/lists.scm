@@ -15,3 +15,15 @@
 (show (memq 'z '(a b c)))
 (show (append '(1 2) '(3)))
 (show (length (append '(1 2) '(3 4 5))))
+;;  A list may use most of the arena; length is bounded by the arena
+;;  (4,096 cells), not by an arbitrary 1,024 cap.  The big list is built
+;;  once and only walked here: copying a list its own size again would
+;;  need 2n free cells in one step, which this arena cannot spare.
+(define (build n) (let loop ((i 0) (acc '())) (if (= i n) acc (loop (+ i 1) (cons i acc)))))
+(define big (build 1200))
+(show (length big))
+(show (list-ref big 1199))
+(show (list-tail big 1198))
+(show (if (memq 1199 big) #t #f))
+(show (assq 5 (map (lambda (x) (cons x x)) (list-tail big 1194))))
+(show (length (build 1201)))

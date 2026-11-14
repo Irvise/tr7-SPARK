@@ -2,6 +2,7 @@ with Ada.Characters.Latin_1; use Ada.Characters.Latin_1;
 with Interfaces; use Interfaces;
 with Tr7.Cells; use Tr7.Cells;
 with Tr7.Config; use Tr7.Config;
+with Tr7.IEEE;
 with Tr7.Pairs; use Tr7.Pairs;
 with Tr7.Writer; use Tr7.Writer;
 with Tr7.Reader;
@@ -139,6 +140,9 @@ is
          when P_Boolean_Equal      => return "boolean=?";
          when P_Symbol_Equal       => return "symbol=?";
          when P_Values_P           => return "values?";
+         when P_Member             => return "member";
+         when P_Assoc              => return "assoc";
+         when P_Equal_P            => return "equal?";
       end case;
    end Name_Of;
 
@@ -2005,7 +2009,8 @@ is
       end if;
       Length (H, Arr (1), N, Good);
       if not Good then
-         --  Not a proper list, or longer than Max_List_Length.
+         --  Not a proper list, or a ring (the walk is bounded by the
+         --  arena, which no proper list exceeds).
          return;
       end if;
       Result := From_Fixnum (Integer_64 (N));
@@ -2054,15 +2059,18 @@ is
 
       --  Every argument but the last must be a proper list; the last may be
       --  any object and becomes the final tail (R7RS 6.4).
+      --  The copy is bounded by the arena, not by Max_List_Length: a
+      --  result too big for the remaining cells reports heap exhausted,
+      --  which is the honest limit.
       for J in 1 .. Len - 1 loop
          pragma Loop_Invariant (Len <= Arr'Length);
          pragma Loop_Invariant (H.Ready);
-         pragma Loop_Invariant (Count <= Max_List_Length);
+         pragma Loop_Invariant (Count <= Max_Cells);
          Cur := Arr (J);
-         Left := Max_List_Length + 1;
+         Left := Max_Cells + 1;
          while not Is_Nil (Cur) and then Left > 0 loop
             pragma Loop_Invariant (H.Ready);
-            pragma Loop_Invariant (Count <= Max_List_Length);
+            pragma Loop_Invariant (Count <= Max_Cells);
             pragma Loop_Variant (Decreases => Left);
             if not Is_Handle (Cur) then
                Status := Error_Type;
@@ -2073,8 +2081,8 @@ is
                Status := Error_Type;
                return;
             end if;
-            if Count >= Max_List_Length then
-               Status := Error_Overflow;
+            if Count >= Max_Cells then
+               Status := Error_Heap_Full;
                return;
             end if;
             New_Pair (H, Node.Car, Nil_Value, Hd, Good);
@@ -2140,7 +2148,7 @@ is
          Status := Error_Wrong_Arity;
          return;
       end if;
-      Reverse_List (H, Arr (1), Result, Good);
+      Reverse_List (H, Arr (1), Result, Good, Status);
       if not Good then
          return;
       end if;
@@ -2203,7 +2211,7 @@ is
       Cur   : Value;
       Node  : Cell;
       Assoc : Cell;
-      Left  : Natural := Max_List_Length + 1;
+      Left  : Natural := Max_Cells + 1;
    begin
       Result := Void_Value;
       Status := Error_Type;
@@ -2255,7 +2263,6 @@ is
       Result := False_Value;
       Status := No_Error;
    end Assq_Prim;
-
    procedure Memq_Prim
      (H      : Heap_Type;
       Args   : Value;
@@ -2268,7 +2275,7 @@ is
       Good : Boolean;
       Cur  : Value;
       Node : Cell;
-      Left : Natural := Max_List_Length + 1;
+      Left : Natural := Max_Cells + 1;
    begin
       Result := Void_Value;
       Status := Error_Type;
@@ -2313,6 +2320,146 @@ is
       Status := No_Error;
    end Memq_Prim;
 
+   --  R7RS member/assoc: the equal?-based relations over the same walks.
+   --  The optional comparison argument is outside v1: it needs to call a
+   --  procedure from a primitive, which the synchronous Call cannot do.
+   procedure Member_Prim
+     (H      : Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with Pre => H.Ready
+   is
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
+      Cur  : Value;
+      Node : Cell;
+      Eq   : Boolean;
+      Fine : Boolean;
+      Left : Natural := Max_Cells + 1;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 2, 2, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+
+      Cur := Arr (2);
+      while not Is_Nil (Cur) and then Left > 0 loop
+         pragma Loop_Invariant (H.Ready);
+         pragma Loop_Variant (Decreases => Left);
+         if not Is_Handle (Cur) then
+            Status := Error_Type;
+            return;
+         end if;
+         Fetch (H, To_Handle (Cur), Node, Good);
+         if not Good or else Node.Kind /= Cell_Pair then
+            Status := Error_Type;
+            return;
+         end if;
+         Deep_Equal (H, Arr (1), Node.Car, Eq, Fine);
+         if not Fine then
+            Status := Error_Malformed;
+            return;
+         end if;
+         if Eq then
+            --  member returns the tail starting at the match.
+            Result := Cur;
+            Status := No_Error;
+            return;
+         end if;
+         Cur := Node.Cdr;
+         Left := Left - 1;
+      end loop;
+      if not Is_Nil (Cur) then
+         Status := Error_Malformed;
+         return;
+      end if;
+
+      Result := False_Value;
+      Status := No_Error;
+   end Member_Prim;
+
+   procedure Assoc_Prim
+     (H      : Heap_Type;
+      Args   : Value;
+      Result : out Value;
+      Status : out Error_Code)
+     with Pre => H.Ready
+   is
+      Arr   : Value_Array;
+      Len   : Natural;
+      Good  : Boolean;
+      Cur   : Value;
+      Node  : Cell;
+      Assoc : Cell;
+      Eq    : Boolean;
+      Fine  : Boolean;
+      Left  : Natural := Max_Cells + 1;
+   begin
+      Result := Void_Value;
+      Status := Error_Type;
+      Args_Of (H, Args, Arr, Len, Good);
+      if not Good then
+         return;
+      end if;
+      Check_Arity (Len, 2, 2, Good);
+      if not Good then
+         Status := Error_Wrong_Arity;
+         return;
+      end if;
+
+      Cur := Arr (2);
+      while not Is_Nil (Cur) and then Left > 0 loop
+         pragma Loop_Invariant (H.Ready);
+         pragma Loop_Variant (Decreases => Left);
+         if not Is_Handle (Cur) then
+            Status := Error_Type;
+            return;
+         end if;
+         Fetch (H, To_Handle (Cur), Node, Good);
+         if not Good or else Node.Kind /= Cell_Pair then
+            Status := Error_Type;
+            return;
+         end if;
+         if not Is_Handle (Node.Car) then
+            Status := Error_Type;
+            return;
+         end if;
+         Fetch (H, To_Handle (Node.Car), Assoc, Good);
+         if not Good or else Assoc.Kind /= Cell_Pair then
+            Status := Error_Type;
+            return;
+         end if;
+         Deep_Equal (H, Arr (1), Assoc.Car, Eq, Fine);
+         if not Fine then
+            Status := Error_Malformed;
+            return;
+         end if;
+         if Eq then
+            Result := Node.Car;
+            Status := No_Error;
+            return;
+         end if;
+         Cur := Node.Cdr;
+         Left := Left - 1;
+      end loop;
+      if not Is_Nil (Cur) then
+         Status := Error_Malformed;
+         return;
+      end if;
+
+      Result := False_Value;
+      Status := No_Error;
+   end Assoc_Prim;
+
 
    --  The two guards every exact division needs: a zero divisor, and the one
    --  product that would not fit a fixnum (Fixnum_Min / -1).
@@ -2330,6 +2477,102 @@ is
          Status := No_Error;
       end if;
    end Div_Guard;
+
+   --  The integer cores of quotient/remainder/modulo, shared by the exact
+   --  and the inexact paths: the exactness rules differ (a flonum operand
+   --  makes the result inexact), the values do not.
+   procedure Quotient_Fixnum
+     (A      : Fixnum;
+      B      : Fixnum;
+      R      : out Fixnum;
+      Status : out Error_Code)
+   is
+   begin
+      R := 0;
+      Div_Guard (A, B, Status);
+      if Status = No_Error then
+         R := A / B;
+      end if;
+   end Quotient_Fixnum;
+
+   procedure Remainder_Fixnum
+     (A      : Fixnum;
+      B      : Fixnum;
+      R      : out Fixnum;
+      Status : out Error_Code)
+   is
+   begin
+      R := 0;
+      if B = 0 then
+         Status := Error_Division_By_Zero;
+         return;
+      end if;
+      if A = Fixnum_Min and then B = -1 then
+         --  The remainder 0 is representable even though the quotient
+         --  would not be.
+         R := 0;
+      else
+         R := A rem B;
+      end if;
+      Status := No_Error;
+   end Remainder_Fixnum;
+
+   procedure Modulo_Fixnum
+     (A      : Fixnum;
+      B      : Fixnum;
+      R      : out Fixnum;
+      Status : out Error_Code)
+   is
+   begin
+      R := 0;
+      if B = 0 then
+         Status := Error_Division_By_Zero;
+         return;
+      end if;
+      if B = -1 then
+         --  A rem -1 is 0 for every A, Fixnum_Min included, and Ada's `mod`
+         --  is Scheme's: the result carries the divisor's sign.
+         R := 0;
+      else
+         R := A mod B;
+      end if;
+      Status := No_Error;
+   end Modulo_Fixnum;
+
+   --  One operand of quotient/remainder/modulo: any number is accepted
+   --  (R7RS "integer" includes inexact integers), but the value must be
+   --  integral and inside the fixnum range to be computed exactly.
+   procedure Integral_Operand
+     (V      : Value;
+      N      : out Fixnum;
+      Ok     : out Boolean;
+      Status : out Error_Code)
+   is
+      F : Long_Float;
+   begin
+      N := 0;
+      Ok := False;
+      if not Is_Number (V) then
+         Status := Error_Type;
+         return;
+      end if;
+      F := As_Float (V);
+      if F /= Long_Float'Floor (F) then
+         Status := Error_Type;
+         return;
+      end if;
+      if F < Long_Float (Fixnum_Min)
+        or else F > Long_Float (Fixnum_Max)
+      then
+         --  An integral value the fixnum range cannot hold: R7RS permits
+         --  reporting a restriction outside the supported range.
+         Status := Error_Overflow;
+         return;
+      end if;
+      N := Fixnum (Integer_64 (F));
+      Ok := True;
+      Status := No_Error;
+   end Integral_Operand;
 
    procedure Abs_Prim
      (H      : Heap_Type;
@@ -2352,6 +2595,13 @@ is
       Check_Arity (Len, 1, 1, Good);
       if not Good then
          Status := Error_Wrong_Arity;
+         return;
+      end if;
+      if Arr (1).Kind = Kind_Flonum then
+         --  R7RS: an inexact argument gives an inexact result, and abs
+         --  cannot overflow a double.
+         Result := From_Flonum (abs Arr (1).F);
+         Status := No_Error;
          return;
       end if;
       Get_Fixnum (Arr (1), N, Good);
@@ -2379,11 +2629,12 @@ is
       Status : out Error_Code)
      with Pre => H.Ready
    is
-      Arr  : Value_Array;
-      Len  : Natural;
-      Good : Boolean;
-      Best : Fixnum;
-      Term : Fixnum;
+      Arr    : Value_Array;
+      Len    : Natural;
+      Good   : Boolean;
+      Best   : Fixnum;
+      Term   : Fixnum;
+      Best_I : Natural range 1 .. Max_Arguments;
    begin
       Result := Void_Value;
       Status := Error_Type;
@@ -2393,6 +2644,38 @@ is
       end if;
       if Len = 0 then
          Status := Error_Wrong_Arity;
+         return;
+      end if;
+
+      if Any_Flonum (Arr, Len) then
+         --  One inexact argument makes the whole operation inexact (R7RS),
+         --  and every argument must still be a number: each one is checked
+         --  as the winner loop reaches it, and the invariant carries the
+         --  winner's checked status to the next comparison.
+         Best_I := 1;
+         if not Is_Number (Arr (Best_I)) then
+            return;
+         end if;
+         for I in 2 .. Len loop
+            pragma Loop_Invariant (Len <= Arr'Length);
+            pragma Loop_Invariant (Is_Number (Arr (Best_I)));
+            if not Is_Number (Arr (I)) then
+               return;
+            end if;
+            --  Comparisons only -- no float arithmetic, so no range reasoning.
+            if (Pick
+                  and then As_Float (Arr (I)) > As_Float (Arr (Best_I)))
+              or else
+                 ((not Pick)
+                    and then As_Float (Arr (I)) < As_Float (Arr (Best_I)))
+            then
+               Best_I := I;
+            end if;
+         end loop;
+         --  The winner as a float: an exact winner converts, which is what
+         --  makes (min 1 2.0) 1.0 and (max 3 1 2.0) 3.0.
+         Result := From_Flonum (As_Float (Arr (Best_I)));
+         Status := No_Error;
          return;
       end if;
 
@@ -2435,6 +2718,7 @@ is
       Good : Boolean;
       A    : Fixnum;
       B    : Fixnum;
+      R    : Fixnum;
    begin
       Result := Void_Value;
       Status := Error_Type;
@@ -2447,19 +2731,24 @@ is
          Status := Error_Wrong_Arity;
          return;
       end if;
-      Get_Fixnum (Arr (1), A, Good);
+      Integral_Operand (Arr (1), A, Good, Status);
       if not Good then
          return;
       end if;
-      Get_Fixnum (Arr (2), B, Good);
+      Integral_Operand (Arr (2), B, Good, Status);
       if not Good then
          return;
       end if;
-      Div_Guard (A, B, Status);
+      Quotient_Fixnum (A, B, R, Status);
       if Status /= No_Error then
          return;
       end if;
-      Result := From_Fixnum (Integer_64 (A / B));
+      --  A flonum operand makes the result inexact (R7RS).
+      if Any_Flonum (Arr, Len) then
+         Result := From_Flonum (Long_Float (R));
+      else
+         Result := From_Fixnum (Integer_64 (R));
+      end if;
       Status := No_Error;
    end Quotient_Prim;
 
@@ -2475,6 +2764,7 @@ is
       Good : Boolean;
       A    : Fixnum;
       B    : Fixnum;
+      R    : Fixnum;
    begin
       Result := Void_Value;
       Status := Error_Type;
@@ -2487,24 +2777,23 @@ is
          Status := Error_Wrong_Arity;
          return;
       end if;
-      Get_Fixnum (Arr (1), A, Good);
+      Integral_Operand (Arr (1), A, Good, Status);
       if not Good then
          return;
       end if;
-      Get_Fixnum (Arr (2), B, Good);
+      Integral_Operand (Arr (2), B, Good, Status);
       if not Good then
          return;
       end if;
-      if B = 0 then
-         Status := Error_Division_By_Zero;
+      Remainder_Fixnum (A, B, R, Status);
+      if Status /= No_Error then
          return;
       end if;
-      if A = Fixnum_Min and then B = -1 then
-         Result := From_Fixnum (0);
-         Status := No_Error;
-         return;
+      if Any_Flonum (Arr, Len) then
+         Result := From_Flonum (Long_Float (R));
+      else
+         Result := From_Fixnum (Integer_64 (R));
       end if;
-      Result := From_Fixnum (Integer_64 (A rem B));
       Status := No_Error;
    end Remainder_Prim;
 
@@ -2520,6 +2809,7 @@ is
       Good : Boolean;
       A    : Fixnum;
       B    : Fixnum;
+      R    : Fixnum;
    begin
       Result := Void_Value;
       Status := Error_Type;
@@ -2532,26 +2822,23 @@ is
          Status := Error_Wrong_Arity;
          return;
       end if;
-      Get_Fixnum (Arr (1), A, Good);
+      Integral_Operand (Arr (1), A, Good, Status);
       if not Good then
          return;
       end if;
-      Get_Fixnum (Arr (2), B, Good);
+      Integral_Operand (Arr (2), B, Good, Status);
       if not Good then
          return;
       end if;
-      if B = 0 then
-         Status := Error_Division_By_Zero;
+      Modulo_Fixnum (A, B, R, Status);
+      if Status /= No_Error then
          return;
       end if;
-      if B = -1 then
-         --  A rem -1 is 0 for every A, Fixnum_Min included, and Ada's `mod`
-         --  is Scheme's: the result carries the divisor's sign.
-         Result := From_Fixnum (0);
-         Status := No_Error;
-         return;
+      if Any_Flonum (Arr, Len) then
+         Result := From_Flonum (Long_Float (R));
+      else
+         Result := From_Fixnum (Integer_64 (R));
       end if;
-      Result := From_Fixnum (Integer_64 (A mod B));
       Status := No_Error;
    end Modulo_Prim;
 
@@ -2583,6 +2870,42 @@ is
          Status := Error_Wrong_Arity;
          return;
       end if;
+      if not (Is_Number (Arr (1)) and then Is_Number (Arr (2))) then
+         return;
+      end if;
+
+      if Any_Flonum (Arr, Len) then
+         --  One inexact operand makes the result inexact (R7RS).  The
+         --  power itself comes from the trusted libm boundary, so every
+         --  outcome is checked here: NaN means an undefined power (a
+         --  negative base with a fractional exponent leaves the reals --
+         --  v1 has no complex numbers), an infinity leaves the range
+         --  every other arithmetic path stays inside.
+         declare
+            A_F : constant Long_Float := As_Float (Arr (1));
+            N_F : constant Long_Float := As_Float (Arr (2));
+            R_F : Long_Float;
+         begin
+            if A_F = 0.0 and then N_F < 0.0 then
+               --  0 to a negative power is 1/0.
+               Status := Error_Division_By_Zero;
+               return;
+            end if;
+            R_F := Tr7.IEEE.Power (A_F, N_F);
+            if R_F /= R_F then
+               Status := Error_Not_Implemented;
+               return;
+            end if;
+            if R_F > Long_Float'Last or else R_F < -Long_Float'Last then
+               Status := Error_Overflow;
+               return;
+            end if;
+            Result := From_Flonum (R_F);
+            Status := No_Error;
+         end;
+         return;
+      end if;
+
       Get_Fixnum (Arr (1), A, Good);
       if not Good then
          return;
@@ -3771,6 +4094,13 @@ is
       if not Good then
          return;
       end if;
+      if N > Max_List_Length then
+         --  A vector cell keeps its length in Arity, which is a
+         --  Max_List_Length-bounded field: say so instead of tripping the
+         --  callee's precondition.
+         Status := Error_Range;
+         return;
+      end if;
       New_Vector (H, Arr (1), N, Hd, Good);
       if not Good then
          Status := Error_Heap_Full;
@@ -3812,14 +4142,12 @@ is
       end if;
       --  A fresh list: reverse twice rather than returning the vector's own
       --  spine, so mutating one cannot change the other.
-      Reverse_List (H, C.Car, Tmp, Good);
+      Reverse_List (H, C.Car, Tmp, Good, Status);
       if not Good then
-         Status := Error_Type;
          return;
       end if;
-      Reverse_List (H, Tmp, Result, Good);
+      Reverse_List (H, Tmp, Result, Good, Status);
       if not Good then
-         Status := Error_Type;
          return;
       end if;
       Status := No_Error;
@@ -4449,6 +4777,8 @@ is
       end if;
       Get_Fixnum (Arr (1), K, Good);
       if not Good or else K < 0 or else K > Max_List_Length then
+         --  A vector cell stores its length in a Max_List_Length-bounded
+         --  field, so this is an honest capacity report, not a hidden cap.
          Status := Error_Range;
          return;
       end if;
@@ -4507,7 +4837,7 @@ is
          return;
       end if;
       Cur := C.Car;
-      Left := Max_List_Length + 1;
+      Left := Max_Cells + 1;
       while not Is_Nil (Cur) and then Left > 0 loop
          pragma Loop_Invariant (H.Ready);
          pragma Loop_Variant (Decreases => Left);
@@ -4556,7 +4886,10 @@ is
          return;
       end if;
       Get_Fixnum (Arr (2), K, Good);
-      if not Good or else K < 0 or else K > Max_List_Length then
+      if not Good or else K < 0 or else K > Max_Cells then
+         --  A proper list has at most Max_Cells elements (one cell per
+         --  pair), so this bound cannot reject a tail a caller could
+         --  legitimately want.
          Status := Error_Index;
          return;
       end if;
@@ -4598,13 +4931,12 @@ is
          Status := Error_Wrong_Arity;
          return;
       end if;
-      Reverse_List (H, Arr (1), Tmp, Good);
+      Reverse_List (H, Arr (1), Tmp, Good, Status);
       if not Good then
          return;
       end if;
-      Reverse_List (H, Tmp, Result, Good);
+      Reverse_List (H, Tmp, Result, Good, Status);
       if not Good then
-         Status := Error_Heap_Full;
          return;
       end if;
       Status := No_Error;
@@ -4623,7 +4955,7 @@ is
       Cur  : Value;
       Node : Cell;
       Next : Value;
-      Left : Natural := Max_List_Length + 1;
+      Left : Natural := Max_Cells + 1;
    begin
       Result := Void_Value;
       Status := Error_Type;
@@ -4690,7 +5022,22 @@ is
          return;
       end if;
       for I in 2 .. Len loop
-         if P = P_Eqv_P then
+         if P = P_Equal_P then
+            declare
+               Eq   : Boolean;
+               Fine : Boolean;
+            begin
+               Deep_Equal (H, Arr (1), Arr (I), Eq, Fine);
+               if not Fine then
+                  --  The pairing table filled: pathological sharing, not
+                  --  an answer, so say so (the same verdict memq gives a
+                  --  ring it cannot finish walking).
+                  Status := Error_Malformed;
+                  return;
+               end if;
+               Ok := Ok and then Eq;
+            end;
+         elsif P = P_Eqv_P then
             Ok := Ok and then Same_Value (Arr (1), Arr (I));
          elsif P = P_Boolean_Equal then
             Ok := Ok
@@ -4706,7 +5053,7 @@ is
       end loop;
       --  Every argument must have the right type even if an early pair
       --  already decided the answer.
-      if P /= P_Eqv_P then
+      if P /= P_Eqv_P and then P /= P_Equal_P then
          for I in 1 .. Len loop
             if P = P_Boolean_Equal then
                if Arr (I).Kind /= Kind_Boolean then
@@ -4895,6 +5242,12 @@ is
          when P_Memq | P_Memv =>
             Memq_Prim (H, Args, Result, Status);
 
+         when P_Member =>
+            Member_Prim (H, Args, Result, Status);
+
+         when P_Assoc =>
+            Assoc_Prim (H, Args, Result, Status);
+
          when P_Bytevector_Length =>
             Bytevector_Length_Prim (H, Args, Result, Status);
 
@@ -5022,7 +5375,7 @@ is
          when P_Last_Pair =>
             Last_Pair_Prim (H, Args, Result, Status);
 
-         when P_Eqv_P | P_Boolean_Equal | P_Symbol_Equal =>
+         when P_Eqv_P | P_Boolean_Equal | P_Symbol_Equal | P_Equal_P =>
             Equal_Prim (H, Args, P, Result, Status);
 
          when P_None =>

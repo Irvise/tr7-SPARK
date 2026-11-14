@@ -435,6 +435,14 @@ is
             Length (H, V, N, Good);
             if not Good then
                Ok := False;
+               return;
+            end if;
+            if N > Max_List_Length then
+               --  The repetition count feeds the expansion budget, which
+               --  is itself Max_List_Length-bounded: more repetitions
+               --  than the budget can spend are rejected, not truncated.
+               Ok := False;
+               return;
             end if;
          end if;
          return;

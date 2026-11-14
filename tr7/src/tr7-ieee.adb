@@ -6,6 +6,14 @@ is
 
    package F is new Ada.Numerics.Generic_Elementary_Functions (Long_Float);
 
+   --  C's pow, from libm (the Ada runtime already links it).  POSIX
+   --  requires a correctly rounded result, while the generic's own "**"
+   --  computes exp (Y * log X) and lands one ulp off for exact powers --
+   --  (expt 2 100.0) is the case that showed it.  pow never raises; it
+   --  reports domain errors as NaN, which callers check for.
+   function C_Pow (X, Y : Long_Float) return Long_Float;
+   pragma Import (C, C_Pow, "pow");
+
    function Plus_Infinity return Long_Float
      with SPARK_Mode => Off
    is
@@ -27,5 +35,17 @@ is
    begin
       return X - X;
    end NaN;
+
+   function Power (X, Y : Long_Float) return Long_Float
+     with SPARK_Mode => Off
+   is
+   begin
+      return C_Pow (X, Y);
+   exception
+      when others =>
+         --  pow does not raise; this is defence in depth so that no
+         --  unexpected failure can escape the boundary.
+         return NaN;
+   end Power;
 
 end Tr7.IEEE;

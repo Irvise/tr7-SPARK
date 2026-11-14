@@ -277,6 +277,75 @@ recording because each looked like a different bug:
   as `X +/- ulp`.  Power-of-two scaling is exact, so the results are the
   attributes' results -- only the spelling changed.
 
+## Conformance batch: `equal?`, mixed flonums, arena bounds (2026-11-14)
+
+What the six smaller conformance gaps cost, and what each taught:
+
+- **Deep equality is a proof about the table, not the walk.**  The
+  cycle-safe `equal?` records one pairing per recursion level, so the
+  depth is bounded by the number of pairings -- the recursion's
+  termination needs no separate fuel argument beyond the defensive one
+  (`Subprogram_Variant (Decreases => Fuel)` with an unreachable zero
+  guard).  Comparing against a pairing already recorded (in either
+  order) answers the coinductive fixpoint, which is what makes rings
+  terminate at all.  Two shapes mattered: entries are append-only (a
+  comparison that fails is fatal, so nothing is ever retracted), and
+  the answer must not depend on which structure is named first.
+  Pathological sharing -- more distinct pairings than the arena has
+  cells -- can exhaust the table; that is reported (`malformed
+  expression`, the same verdict `memq` gives a ring), never answered
+  with a guess.
+- **A flow warning has the same price as a proof failure.**  The
+  pairing table was an `in out` parameter written by the recursion and
+  never read by the entry point -- the exact "X is set by Y but not
+  used after the call" shape findings already recorded.  A `pragma
+  Assert` after the walk reads the table, keeps the capacity fact next
+  to the code that maintains it, and costs nothing at run time worth
+  mentioning.  The `Reverse_List` wrapper over the reason-carrying form
+  reads its discarded `Err` in a guard instead.
+- **libm's `pow` beats the elementary library's `**` by one ulp.**
+  `(expt 2 100.0)` came out `1 ulp` high because
+  `Generic_Elementary_Functions`' `"**"` computes `exp (Y * log X)`;
+  the correctly rounded answer is exactly `2**100`.  The fix is a
+  one-line trusted import of C's `pow` inside `Tr7.IEEE` -- the package
+  exists precisely to be the small trusted float boundary, and it
+  already links `-lm`.  `(expt 10 2.5)` then equals
+  `(sqrt (expt 10 5.0))` bit for bit.
+- **`'Floor` proves; the float-in-loop rule does not apply to
+  comparisons.**  The mixed `min`/`max` winner loop is pure comparison,
+  and GNATprove discharges it with one invariant (`Is_Number (Arr
+  (Best_I))`) because a comparison cannot overflow -- the invariant
+  generation blow-up only ever came from float *arithmetic* in loops.
+  The inexact `quotient`/`remainder`/`modulo` path converts integral
+  flonum operands through `Long_Float'Floor` plus a range guard, then
+  calls the exact integer cores, so the exactness rules live in one
+  place.
+- **The 4,096-cell arena is a real budget, not a formality.**  Removing
+  the 1,024 cap on `length` immediately showed what the review's F13
+  had predicted: the named-let build loop's short-lived environments
+  are unreachable garbage that sits above the hard collection floor,
+  and a single allocation-heavy step (`list-copy` needs 2n free cells
+  for an n-element list) then fails inside a heap that still holds
+  1,700 collectible cells.  The fix is the soft trigger: collect below
+  `GC_Soft_Water` too, but only while the previous collection was
+  productive (freed at least `GC_Low_Water` cells), which reclaims stale
+  garbage without re-collecting every step of a loop whose live set
+  fills the arena.  The suites are sized to what the arena can hold
+  with their sources live -- `tests/appends.scm` documents that budget.
+- **Report the reason, not the nearest error code.**  Two pre-existing
+  mappings lied: `Bind_Params` turned a heap-full application into
+  "wrong number of arguments", and `Reverse_Prim`/`List_Copy_Prim` turned
+  a heap-full `reverse` into "type error".  Both now carry the real
+  `Error_Code` out of the helper.  This is also why `Length`'s cap
+  removal is honest: the walk bound is the arena, which no proper list
+  exceeds, and a ring is `malformed expression` exactly as the bounded
+  `memq` reports.
+- **Flake watch: the 5-second gate needs an idle machine.**  One gate
+  run under heavy parallel load produced three timeout-flavoured
+  mediums that a rerun on the idle machine did not; the writer's
+  `Format_G` loop is the sensitive unit.  Rerun the gate alone before
+  believing a red run -- and never "fix" a flake.
+
 ## Ada/SPARK idiom notes from the M0 proof loop
 
 - A single readiness flag beats two: `Engine.Ready` was dropped in favour of
