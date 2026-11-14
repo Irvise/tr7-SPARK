@@ -1,4 +1,3 @@
-with Tr7.Config; use Tr7.Config;
 with Tr7.Cells; use Tr7.Cells;
 with Tr7.Env;
 with Tr7.Ids; use Tr7.Ids;
@@ -75,7 +74,7 @@ is
 
          --  Safe point between datums: the machine is idle, so the machine
          --  state and the global environment root everything still live.
-         if E.H.Stress_GC or else E.H.Free_Count <= GC_Low_Water then
+         if E.H.Stress_GC or else Collection_Due (E.H) then
             Tr7.Machine.Collect_Garbage (E.H, E.Global, E.M);
          end if;
 

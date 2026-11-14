@@ -23,13 +23,25 @@ is
    Max_Steps : constant := 1_000_000;
 
    --  Mark-sweep collector.  Collection only ever runs at a safe point (the
-   --  top of the evaluator loop, between steps), where the CEK state plus the
-   --  global environment are a complete root set.  GC_Low_Water is the
-   --  free-cell threshold that triggers a collection there.  It is a
-   --  heuristic headroom, not a guarantee: a single allocation-heavy step
-   --  (list-copy, make-vector) can need more, in which case allocation
-   --  reports heap exhausted at the safe point after that step.
-   GC_Low_Water : constant := 512;
+   --  top of the evaluator loop, between steps, and between datums in the
+   --  engine's read loop), where the CEK state plus the global environment
+   --  are a complete root set.  Two thresholds govern the trigger:
+   --
+   --    * GC_Low_Water is the hard floor: below it a collection always
+   --      runs.  It is heuristic headroom, not a guarantee: a single
+   --      allocation-heavy step (list-copy, append) can still need more,
+   --      and allocation then reports heap exhausted.
+   --    * GC_Soft_Water catches stale garbage before the floor does: a
+   --      collection also runs below GC_Soft_Water when the previous one
+   --      was productive (freed at least GC_Low_Water cells).  A burst of
+   --      short-lived allocations leaves unreachable cells above the hard
+   --      floor; without this, that garbage sits uncollected until an
+   --      allocation-heavy step fails.  The productivity condition stops
+   --      the soft trigger from collecting on every step of a loop whose
+   --      live set simply fills the arena -- a collection that freed
+   --      nothing buys no headroom.
+   GC_Low_Water  : constant := 512;
+   GC_Soft_Water : constant := 3 * GC_Low_Water;
 
    --  Under --stress-gc a collection runs every this many evaluator steps
    --  rather than every one: one sweep touches the whole arena, so every

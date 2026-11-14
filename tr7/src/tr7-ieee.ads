@@ -14,4 +14,12 @@ is
    function Minus_Infinity return Long_Float;
    function NaN return Long_Float;
 
+   --  X raised to Y over the reals, from the standard elementary-function
+   --  library.  Like the three values above, this is a trusted boundary:
+   --  the body is SPARK_Mode => Off, and callers must check what comes back.
+   --  A negative base with a fractional exponent is rejected before the
+   --  call (it leaves the reals), and the body maps a rejected or
+   --  undefined power to NaN so no exception escapes.
+   function Power (X, Y : Long_Float) return Long_Float;
+
 end Tr7.IEEE;

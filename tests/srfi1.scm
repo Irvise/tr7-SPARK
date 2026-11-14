@@ -15,3 +15,24 @@
 (show (last '(1 2 3)))
 (show (delete 2 '(1 2 3 2)))
 (show (delete-duplicates '(1 2 1 3 2)))
+;;  any/every over several lists: they stop at the first empty one and
+;;  return the deciding (or last) predicate value.
+(show (any = '(1 2 3) '(1 5 3)))
+(show (any = '(1 2 3) '(1 5 4)))
+(show (any (lambda (x y) (and (= x y) (list x y))) '(1 2 3) '(1 5 3)))
+(show (any even? '(1 3)))
+(show (any even? '()))
+(show (every = '(1 2) '(1 2)))
+(show (every < '(1 2) '(2 3)))
+(show (every < '(1 5) '(2 3)))
+(show (every odd? '()))
+(show (every + '(1 2) '(10 20)))
+;;  fold over several lists: kons takes one element per list, then the seed.
+(show (fold + 0 '(1 2) '(10 20)))
+(show (fold-left + 0 '(1 2) '(10 20)))
+(show (fold-right + 0 '(1 2) '(10 20)))
+(show (fold (lambda (x y acc) (cons (+ x y) acc)) '() '(1 2) '(10 20)))
+(show (fold-right (lambda (x y acc) (cons y (cons x acc))) '() '(1 2) '(10 20)))
+;;  unequal lengths stop at the shortest, as SRFI-1 specifies
+(show (any = '(1) '(1 2)))
+(show (every = '(1 2) '(1 2 3)))

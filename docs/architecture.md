@@ -244,11 +244,21 @@ the predicate checks the tag, and each accessor/modifier is a `vector-ref`/
 frame is involved (`tests/records.scm`).
 
 `(import (srfi 1))` installs a fixed Scheme prelude on first use.  The
-higher-order list procedures (`filter`, `fold`, `fold-right`, `fold-left`,
-`any`, `every`, `find`, `take-while`, `drop-while`, `append-map`, ...) are
-written in Scheme so the evaluator calls user procedures; they are loaded
-lazily by the `import` form rather than occupying the arena in every engine.
-Other library names are accepted but not implemented.
+higher-order list procedures (`filter`, the n-ary `fold`/`fold-right`/
+`fold-left`, the value-returning `any`/`every` over several lists, `find`,
+`take-while`, `drop-while`, `append-map`, ...) are written in Scheme so the
+evaluator calls user procedures; the n-ary forms walk all their lists in
+lockstep and stop at the first empty one, exactly as SRFI-1 specifies.
+`delete` and `delete-duplicates` compare with `equal?`, whose deep
+walk lives in `Tr7.Pairs.Deep_Equal`: pairs and vectors compare
+element-wise with a pairing table, so rings terminate (a cell compared
+against a partner it is already paired with answers the coinductive
+fixpoint) and the recursion depth is bounded by the number of pairings,
+hence by the arena; exhausting the pairing table -- more distinct
+pairings than the arena can hold -- is reported, not answered.  `member`
+and `assoc` are core primitives over the same walk.  They are loaded
+lazily by the `import` form rather than occupying the arena in every
+engine.  Other library names are accepted but not implemented.
 
 ## Ports
 
@@ -378,10 +388,23 @@ Exact division follows Scheme through Ada: `quotient` is Ada's `/`
 (truncation toward zero), `remainder` is `rem` (dividend's sign) and `modulo`
 is `mod` (divisor's sign) -- all three share one guard for a zero divisor and
 for the single product `Fixnum_Min / -1` that no fixnum holds.  `abs` rejects
-`Fixnum_Min` for the same reason, and `expt` is fixnum-only: powers of 0, 1
-and -1 are answered without a loop, any exponent above 63 overflows (a base of
-at least 2 cannot stay in a fixnum longer), and a negative power of anything
-else is `not implemented` because v1 has no rationals.
+`Fixnum_Min` for the same reason, and `expt` on exact operands answers powers
+of 0, 1 and -1 without a loop, overflows above exponent 63 (a base of at
+least 2 cannot stay in a fixnum longer) and reports a negative power of
+anything else as `not implemented` because v1 has no rationals.
+
+Every one of these operations also takes mixed flonum operands where R7RS
+requires it: one inexact argument makes the result inexact.  `abs` is an
+`abs` on the double; `min`/`max` pick a winner with comparisons only (an
+exact winner converts, so `(max 3 1 2.0)` is `3.0`); the integer division
+trio converts integral flonum operands into the fixnum range (a non-integer
+or out-of-range flonum operand is a type error / overflow by name) and
+computes with the same integer cores, returning the result as a flonum;
+`expt` with any inexact operand goes through libm's correctly rounded `pow`
+behind the `Tr7.IEEE` trusted boundary (`tests/arith.scm`), with NaN mapped
+to `not implemented`, infinities to overflow, and `0.0` to a negative power
+to a division by zero.  A negative base with a fractional exponent is also
+`not implemented`: the result leaves the reals.
 
 ## Flonums
 
@@ -467,8 +490,13 @@ environment are a *complete* root set, and no step-local object is alive.
   verification scan), the cycle is abandoned: every mark is dropped and *no*
   cell is freed.  A failed collection therefore only leaves garbage in place;
   it can never free a live object.
-- Trigger: `H.Free_Count <= GC_Low_Water` (512 cells) at a safe point, or a
-  fixed cadence under `--stress-gc` (`GC_Stress_Every`, 8).
+- Trigger: `Collection_Due` at a safe point -- the hard floor
+  `H.Free_Count <= GC_Low_Water` (512 cells), or the soft floor
+  (`<= GC_Soft_Water`, 1,536) while the previous collection was productive
+  (freed at least GC_Low_Water cells: a burst of short-lived allocations
+  leaves unreachable cells above the hard floor, and a collection that
+  freed nothing buys no headroom) -- or a fixed cadence under `--stress-gc`
+  (`GC_Stress_Every`, 8).
 - The reader never allocates while a collection can run, so reader temporaries
   are never at risk; a datum that alone exceeds the free space is reported as
   `heap exhausted`.

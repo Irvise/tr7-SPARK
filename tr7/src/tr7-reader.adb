@@ -911,6 +911,8 @@ is
                   if not Ok or else not Is_Fixnum (Elem)
                     or else Elem.N < 0 or else Elem.N > 255
                   then
+                     --  Ok is already False whenever the Nth walk failed,
+                     --  so a fresh assignment here would be dead.
                      return;
                   end if;
                   Bytes (I) := Character'Val (Integer (Elem.N));
@@ -939,6 +941,12 @@ is
             end if;
             Length (H, Elems, N, Ok);
             if not Ok then
+               return;
+            end if;
+            if N > Max_List_Length then
+               --  A vector cell keeps its length in a Max_List_Length-
+               --  bounded field: the same capacity the evaluator's
+               --  constructors report.
                return;
             end if;
             New_Vector (H, Elems, N, Hd, Ok);

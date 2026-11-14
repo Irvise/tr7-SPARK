@@ -1,11 +1,12 @@
 # M5 — GC reachability proof: completion report
 
 **Status: M5 complete.  The M5 gate was green at 2,895 checks; it is now
-4,412 after the follow-up core-procedure, eval, sequence/number,
-`syntax-rules`, comparison/constructor, values-binding and review-fix
+4,578 after the follow-up core-procedure, eval, sequence/number,
+`syntax-rules`, comparison/constructor, values-binding, review-fix,
+records/SRFI-1 and equal?/flonum-conformance
 batches, still with
-0 unproved, 0 justified, 0 warnings and 52 suites green, each also run under stress GC
-(level 4, 5 s, `-j6`, `--checks-as-errors`).**  Last updated: 2026-11-13.
+0 unproved, 0 justified, 0 warnings and 56 suites green, each also run under stress GC
+(level 4, 5 s, `-j6`, `--checks-as-errors`).**  Last updated: 2026-11-14.
 
 This document records how the reachability/liveness obligation was closed.  It
 replaces the earlier M5 handoff, whose state was gate RED; the experiments

@@ -125,6 +125,10 @@ is
       P_Eqv_P,
       P_Boolean_Equal,
       P_Symbol_Equal,
-      P_Values_P);
+      P_Values_P,
+      --  Deep equality: `equal?` and the R7RS `member`/`assoc` built on it.
+      P_Member,
+      P_Assoc,
+      P_Equal_P);
 
 end Tr7.Ids;

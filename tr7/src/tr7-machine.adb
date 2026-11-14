@@ -314,10 +314,11 @@ is
       Params : Value;
       Args   : Value;
       Env    : Handle;
-      Ok     : out Boolean)
+      Ok     : out Boolean;
+      Err    : out Error_Code)
      with
        Pre  => H.Ready,
-       Post => H.Ready
+       Post => H.Ready and then (if Ok then Err = No_Error)
    is
       P     : Value := Params;
       A     : Value := Args;
@@ -328,18 +329,28 @@ is
       Good  : Boolean;
    begin
       Ok := False;
+      --  The ordinary failure here is an arity mismatch; the paths that
+      --  mean something else (an exhausted arena, damaged structure) say
+      --  so, because a heap-full application used to be reported as a
+      --  wrong number of arguments.
+      Err := Error_Wrong_Arity;
       loop
          pragma Loop_Invariant (H.Ready);
          if Is_Nil (P) then
             Ok := Is_Nil (A);
+            if Ok then
+               Err := No_Error;
+            end if;
             return;
          end if;
          if not Is_Handle (P) then
+            Err := Error_Malformed;
             return;
          end if;
 
          Fetch (H, To_Handle (P), PC, Good);
          if not Good then
+            Err := Error_Malformed;
             return;
          end if;
 
@@ -348,9 +359,15 @@ is
          if PC.Kind = Cell_Symbol then
             Tr7.Env.Define (H, Env, P, A, Good);
             Ok := Good;
+            if Good then
+               Err := No_Error;
+            else
+               Err := Error_Heap_Full;
+            end if;
             return;
          end if;
          if PC.Kind /= Cell_Pair then
+            Err := Error_Malformed;
             return;
          end if;
          if Is_Nil (A) then
@@ -359,14 +376,17 @@ is
 
          Sym := PC.Car;
          if not Is_Handle (Sym) then
+            Err := Error_Malformed;
             return;
          end if;
          Car_Of (H, A, Val, Good);
          if not Good then
+            Err := Error_Malformed;
             return;
          end if;
          Tr7.Env.Define (H, Env, Sym, Val, Good);
          if not Good then
+            Err := Error_Heap_Full;
             return;
          end if;
 
@@ -374,6 +394,7 @@ is
          P := Next;
          Cdr_Of (H, A, Next, Good);
          if not Good then
+            Err := Error_Malformed;
             return;
          end if;
          A := Next;
@@ -397,6 +418,7 @@ is
       Arity : Natural;
       New_Env : Handle;
       Prim_Status : Error_Code;
+      Bind_Status : Error_Code;
       Lambda_Body : Value;
       First   : Value;
       Rest    : Value;
@@ -698,9 +720,9 @@ is
                return;
             end if;
 
-            Bind_Params (H, C.Car, Args, New_Env, Good);
+            Bind_Params (H, C.Car, Args, New_Env, Good, Bind_Status);
             if not Good then
-               Fail (M, Error_Wrong_Arity);
+               Fail (M, Bind_Status);
                return;
             end if;
 
@@ -4627,6 +4649,9 @@ is
       --  the array does not need a full zeroing pass per collection.
       Roots : Root_Array;
       Count : Root_Count := 0;
+      --  Cells free on entry: what the sweep released is reported back to
+      --  the soft trigger (Collection_Due) as this collection's yield.
+      Free_Before : constant Natural := H.Free_Count;
 
       --  Resolve one root value to its live cell and append it.  Duplicates
       --  are fine -- the collector's rooting loop skips a cell it has
@@ -4708,8 +4733,13 @@ is
       end loop;
 
       Collect (H, Roots, Count);
-      if not H.Mark_Failed then
+      if H.Mark_Failed then
+         --  An abandoned cycle freed nothing; do not let the soft trigger
+         --  treat it as productive headroom.
+         H.Last_Freed := 0;
+      else
          Reach.Sweep (H, Roots, Count);
+         H.Last_Freed := H.Free_Count - Free_Before;
       end if;
    end Collect_Garbage;
 
@@ -4741,10 +4771,11 @@ is
          pragma Loop_Invariant (Steps <= Max_Steps);
          pragma Loop_Invariant (H.Ready);
 
-         --  Safe point: collect before the step when the arena runs low, or
-         --  on a fixed cadence under --stress-gc.
-         if H.Free_Count <= GC_Low_Water
-           or else (H.Stress_GC and then Stress_Due = 0)
+         --  Safe point: collect before the step when the arena runs low
+         --  (hard floor, or the soft floor while the last collection was
+         --  productive), or on a fixed cadence under --stress-gc.
+         if (H.Stress_GC and then Stress_Due = 0)
+           or else Collection_Due (H)
          then
             Collect_Garbage (H, Env, M);
             Stress_Due := GC_Stress_Every - 1;

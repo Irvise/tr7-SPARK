@@ -60,6 +60,11 @@ is
       --  stops for good: the heap keeps every cell it has, reports exhaustion
       --  if it fills, and never frees anything against stale marks.
       Collect_Stopped : Boolean := False;
+      --  Cells the previous collection freed.  The soft trigger
+      --  (Collection_Due) collects below GC_Soft_Water only when the last
+      --  collection was productive, so a full live set does not collect on
+      --  every step.
+      Last_Freed  : Natural range 0 .. Max_Cells := 0;
       --  Collect at every safe point instead of only below GC_Low_Water; the
       --  REPL enables it with --stress-gc so the suites exercise the
       --  collector continuously.
@@ -73,6 +78,14 @@ is
          and then H.Free_Head = 1
          and then H.Mark_Top = 0
          and then not H.Mark_Failed;
+
+   --  Whether a safe point should collect now: the hard floor always
+   --  fires; the soft floor only fires while the previous collection
+   --  actually reclaimed headroom (see Tr7.Config for the rationale).
+   function Collection_Due (H : Heap_Type) return Boolean is
+     (H.Free_Count <= GC_Low_Water
+        or else (H.Free_Count <= GC_Soft_Water
+                   and then H.Last_Freed >= GC_Low_Water));
 
    procedure Allocate
      (H      : in out Heap_Type;

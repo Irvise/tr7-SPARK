@@ -92,6 +92,30 @@ list utilities `char=?`/`char<?`/`char>?`/`char<=?`/`char>=?`,
 `make-vector`, `vector-fill!`, `list-tail`, `list-copy`, `last-pair`,
 `eqv?`, `boolean=?` and `symbol=?` (`tests/core.scm`).
 
+`equal?` is a deep, cycle-safe structural equality (`tests/equal.scm`):
+pairs and vectors compare element-wise, strings and bytevectors by
+content, everything else as `eqv?` does.  Rings built with `set-cdr!`
+terminate: two cells already being compared (in either order) answer the
+coinductive fixpoint, so the walk visits every distinct pairing at most
+once.  The R7RS `member` and `assoc` use it (`member`'s optional
+comparison argument is a v1 gap: calling a procedure from a primitive
+needs the evaluator).
+
+Integer arithmetic keeps `quotient`, `remainder`, `modulo`, `abs`, `min`,
+`max` and `expt` on fixnums, and every one of them now takes mixed
+flonum operands where R7RS requires it: one inexact argument makes the
+result inexact (`(min 1 2.0)` is `1.0`, `(expt 2 3.0)` is `8.0`,
+`(quotient 7.0 2)` is `3.0`), exact operands give exact results with the
+existing overflow and zero-divisor reports (`tests/arith.scm`,
+`tests/bad-arith.scm`).  Flonum `expt` goes through libm's correctly
+rounded `pow` behind the `Tr7.IEEE` trusted boundary; a negative base
+with a fractional exponent is `not implemented` (no complex numbers).
+
+`length` is bounded by the arena (a proper list holds one cell per
+element, so 4,096 is the honest limit), not by an arbitrary 1,024 cap;
+`memq`/`memv`/`assq`/`assv`/`list-tail` walks are bounded the same way
+and a ring is reported as `malformed expression`.
+
 `values` and `call-with-values` are in (`tests/values.scm`): several
 values ride a wrapper cell that the evaluator spreads onto the consumer,
 one value stays itself, none becomes the empty wrapper.  `let-values` and
@@ -127,9 +151,13 @@ names, and `quote` contents are data.  An ellipsis followed by a dotted tail,
 or a second repetition group at the same list level, is still not supported.
 
 `(import ...)` is accepted: `(import (srfi 1))` loads a Scheme prelude with
-`filter`, `fold`/`fold-right`/`fold-left`, `any`, `every`, `find`, `take`,
-`drop`, `iota`, `zip`, `concatenate`, `delete-duplicates` and friends; other
-library names are declarations because the core bindings are already global.
+`filter`, the n-ary `fold`/`fold-right`/`fold-left` (one element per list,
+seed last), the value-returning `any` and `every` over any number of lists
+(they stop at the first empty one, as SRFI-1 specifies), `find`,
+`find-tail`, `take`, `drop`, `take-while`, `drop-while`, `iota`, `zip`,
+`concatenate`, `append-map`, `last`, `list-tabulate`, `delete` and
+`delete-duplicates` (the last two compare with `equal?`); other library
+names are declarations because the core bindings are already global.
 `define-record-type` implements SRFI-9 records as tagged vectors, including
 constructors, predicates, accessors and modifiers (`tests/records.scm`).
 
