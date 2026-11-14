@@ -475,6 +475,85 @@ instruction-level attribution of a microsecond-scale function is needed.
 `free-cells` is a small non-standard extension primitive: it lets the GC suite
 assert that garbage was actually reclaimed, not merely that nothing crashed.
 
+## The value-ABI batch: encodings, -gnatVa, and what upstream actually does
+
+The C ABI grew from six entry points to 102 of the 183 `tr7.h` symbols.
+What it cost, and what it taught:
+
+**The encoding decides everything, so it was designed before any wrapper
+was written.**  Immediates take upstream's exact bits (fixnum
+`(n << 2) | 1`, VSP constants `(k << 5) | 3`, characters
+`(c << 5) | 11`) because those involve no pointer and cost nothing --
+which is what makes the header's `TR7_IS_INT`/`TR7_FROM_CHAR` macros
+work on our values *and* on host-forged ones.  Doubles became real
+tagged pointers into a per-engine arena freed at engine destroy, cached
+by bit pattern: equal doubles share a cell, so `eqv` on them is *true*,
+which is R7RS and not what upstream's allocate-per-call answer gives.
+Heap values are `(engine_id << 47) | (generation << 15) |
+(cell_index << 3) | 2` -- 63 bits, always a positive intptr_t.  The
+engine id (16 bits, never reused) is what lets an engine-less accessor
+like `tr7_car_or_void` resolve a value at all, and what makes a value
+that outlived its engine rejected *even when a new engine reuses the
+address*.
+
+**Cross-engine values are the silent corruptor.**  A handle only means
+something inside the arena that issued it; storing a foreign engine's
+handle into a pair would have the collector mark it against the wrong
+arena.  Every allocating or mutating wrapper therefore rejects a value
+whose engine id does not match the engine it operates on.  The engine
+table is the enabler: null, unaligned *and* unregistered pointers all
+answer the documented failure value, and the registry lookup is what
+actually says "this address is an engine this library created".
+
+**Alire's generated `-gnatVa` turns IEEE inf/NaN into Constraint_Error
+at the boundary.**  With all validity checks on, GNAT checks a float
+read from memory or used as an operand -- `+Inf` and `NaN` are abnormal
+values, so `tr7_from_double` could not transport them: the body's first
+statement never ran, the exception handler answered `TR7_NIL`, and no
+test in the world would have shown it without comparing against the
+oracle (the differential run did, on `isinf`/`isnan`/`isfinite`).  The
+fix is a scoped `pragma Suppress (Validity_Check)` in the trusted body
+of `tr7_c` -- not the verified core, where the no-Suppress rule holds --
+with the why-comment in place: this is the one package whose contract
+says abnormal IEEE values cross the boundary, and its own run-time
+checked Pre/Post discipline plus explicit pointer validation is the
+guard, not a compiler-inserted float check.
+
+**Upstream behaviours the differential run pinned down** (2.0.18,
+checked against `probe*.c` runs before anything was written):
+
+- a bare upstream engine binds *nothing*: `+`, `car`, `display` are all
+  unbound until the host imports a library from the checkout's
+  `tr7libs`.  The environment preamble in `tests/abi_differential.c`
+  (import `(scheme r5rs)`) is what makes the eval cases comparable.
+- upstream's `tr7_load_string` returns **1** after a trapped error,
+  contrary to its own header ("returning 0 on error"); our wrapper
+  follows the header.  The error path is therefore excluded from the
+  differential and documented as a deviation.
+- upstream's `tr7_is_real` answers 0 for an exact integer, and its
+  `tr7_vector_ref`/`tr7_vector_set` on an out-of-range index return
+  something that is not the documented VOID; ours follow R7RS and the
+  header instead.  Both excluded from the differential, both recorded.
+- upstream's `tr7_unsafe_list_length` never returns on a cycle; ours is
+  bounded by the arena and answers the improper-list shape at the bound.
+- `tr7_is_finite` on an exact integer is 1 upstream; our first cut
+  answered 0 and the differential caught it in one run.
+
+**Bound every user-data walk, in the ABI too.**  All list walks in the
+wrappers use the same fuel -- `Max_Cells` pairs visited, which an
+acyclic list cannot exceed because each pair is one arena cell -- so a
+cyclic list answers `tr7_list_length` = -1, `tr7_memq` = FALSE,
+`tr7_reverse_in_place` = VOID, and terminates, where upstream hangs.
+The same reasoning bounds `tr7_equal` (fuel per recursive step).
+
+**Differential harness shape.**  One program, two libraries: compiled
+against a library built from the upstream checkout's `tr7.c` (into a
+scratch directory, the checkout untouched) and against `libTr7_C.a`,
+then the reports are diffed.  Values are reported through each library's
+own accessors, so the two encodings never meet.  81 cases currently
+agree.  The script exits 0 with "skipped" when no oracle is present, so
+the gate is not hostage to an upstream checkout.
+
 ## M5: proving reachability without poisoning the collector
 
 The M5 goal was: after `Collect`, `marked = reachable-from-roots`, so the

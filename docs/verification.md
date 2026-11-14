@@ -85,7 +85,8 @@ Results, one entry per closed step of the plan:
 | re-entrant call/cc (heap continuation snapshots) + IEEE special values | 4,079 |
 | wind re-entry through continuations | 4,102 |
 | relaxed initialization of the GC root scratch array | 4,138 |
-| records, SRFI-1 prelude, cross-wind continuations | **4,412** |
+| records, SRFI-1 prelude, cross-wind continuations | 4,412 |
+| C ABI value layer (102/183 symbols, negative tests, differential harness) | **4,412** |
 
 Every row is 0 unproved, 0 justified, 0 warnings, with flow, initialization
 and non-aliasing fully proved and a warning-free build.
@@ -140,7 +141,38 @@ selectors and accessors are deliberately Pre-only: `Kind_Of`, `Car_Of`,
 `Cdr_Of`, `Lookup` and most constructors constrain safety and readiness, not
 their functional result.  Value predicates and the reachability lattice are
 total expression functions.  The C ABI subprograms in `tr7_c` keep their
-contracts and are documented as trusted bodies.  The collector's postcondition
-states the three closedness facts separately and never mentions `Reachable`;
-the sweep's liveness goal lives in `Tr7.Reach` loop invariants, which the
-policy file compiles away.
+contracts and are documented as trusted bodies: every predicate's Post pins
+its answer to 0/1, every constructor's Post pins its result to the encoding
+its argument names or the failure constant, and the bodies validate
+pointers, ranges and engine identity explicitly (`pragma Suppress
+(Validity_Check)` is scoped to the trusted body of `tr7_c` alone, because
+IEEE inf/NaN must cross that boundary; see `docs/findings.md`).  The
+collector's postcondition states the three closedness facts separately
+and never mentions `Reachable`; the sweep's liveness goal lives in
+`Tr7.Reach` loop invariants, which the policy file compiles away.
+
+## The differential harness
+
+```sh
+./scripts/diff_upstream.sh [path-to-upstream-checkout]
+```
+
+Compiles `tests/abi_differential.c` twice -- against a library built from
+the upstream checkout's `tr7.c` (scratch directory, checkout untouched) and
+against `libTr7_C.a` -- and diffs the reports.  81 cases currently agree.
+With no oracle present the script reports "skipped" and exits 0, so it is
+not a required gate without one; `scripts/test.sh` runs it and fails the
+gate only on a real mismatch or a build failure when an oracle *is*
+available.  The excluded divergences are listed in
+`docs/architecture.md` (Boundary) and `docs/findings.md`.
+
+## Gate status (value-ABI batch, 2026-11-14)
+
+- `./scripts/build.sh`: warning-free (core, ABI library, REPL).
+- `./scripts/test.sh`: 52 `.scm` suites, each run plain and under
+  stress GC (104 suite runs), plus the GC stress run, the long-line/CRLF
+  check, the ABI stub check, the ABI C demo, and the differential
+  harness against upstream -- 108 checks, all green.
+- `./scripts/prove.sh` (TIMEOUT=5): 4,412 checks, 0 unproved, 0
+  justified, 0 flow warnings -- unchanged by this batch, which touched
+  only the trusted boundary.
