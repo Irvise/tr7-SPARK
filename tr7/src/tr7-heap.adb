@@ -442,6 +442,56 @@ is
       end if;
    end New_Values;
 
+   procedure New_Bigint
+     (H      : in out Heap_Type;
+      Text   : String;
+      Result : out Handle;
+      Ok     : out Boolean)
+   is
+      Len : constant Natural := Text'Length;
+   begin
+      Allocate (H, Cell_Bigint, Result, Ok);
+      if Ok then
+         H.Cells (Result.Index).Name_Len := Len;
+         for I in Text'Range loop
+            pragma Loop_Invariant (H.Ready);
+            pragma Loop_Invariant (I >= Text'First);
+            pragma Loop_Invariant (I <= Text'Last);
+            H.Cells (Result.Index).Name (I - Text'First + 1) := Text (I);
+         end loop;
+      end if;
+   end New_Bigint;
+
+   procedure New_Rational
+     (H      : in out Heap_Type;
+      Num    : Value;
+      Den    : Value;
+      Result : out Handle;
+      Ok     : out Boolean)
+   is
+   begin
+      Allocate (H, Cell_Rational, Result, Ok);
+      if Ok then
+         H.Cells (Result.Index).Car := Num;
+         H.Cells (Result.Index).Cdr := Den;
+      end if;
+   end New_Rational;
+
+   procedure New_Complex
+     (H      : in out Heap_Type;
+      Real   : Value;
+      Imag   : Value;
+      Result : out Handle;
+      Ok     : out Boolean)
+   is
+   begin
+      Allocate (H, Cell_Complex, Result, Ok);
+      if Ok then
+         H.Cells (Result.Index).Car := Real;
+         H.Cells (Result.Index).Cdr := Imag;
+      end if;
+   end New_Complex;
+
    procedure Set_Port_Pos
      (H   : in out Heap_Type;
       V   : Value;

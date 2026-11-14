@@ -609,6 +609,62 @@ is
       Put (B, ')', Ok);
    end Write_Pair;
 
+   --  Is a real numeric value negative?  Only the complex writer needs it:
+   --  it decides whether to print an explicit '+' before the imaginary
+   --  part, where the value's own image would otherwise omit it.
+   function Negative_Real
+     (H : Heap_Type;
+      V : Value) return Boolean
+   is
+      C    : Cell;
+      Good : Boolean;
+   begin
+      if Is_Fixnum (V) then
+         return V.N < 0;
+      elsif Is_Flonum (V) then
+         return V.F < 0.0;
+      elsif not Is_Handle (V) then
+         return False;
+      end if;
+      Fetch (H, To_Handle (V), C, Good);
+      if not Good then
+         return False;
+      end if;
+      if C.Kind = Cell_Bigint then
+         return C.Name_Len > 0 and then C.Name (1) = '-';
+      elsif C.Kind = Cell_Rational then
+         if Is_Fixnum (C.Car) then
+            return C.Car.N < 0;
+         elsif Is_Handle (C.Car) then
+            Fetch (H, To_Handle (C.Car), C, Good);
+            return Good and then C.Kind = Cell_Bigint
+              and then C.Name_Len > 0 and then C.Name (1) = '-';
+         end if;
+      end if;
+      return False;
+   end Negative_Real;
+
+   --  Is a real numeric value exactly one?  The complex writer prints the
+   --  imaginaries 1 and -1 as the bare unit `i`.
+   function Is_Real_One
+     (H : Heap_Type;
+      V : Value) return Boolean
+   is
+      C    : Cell;
+      Good : Boolean;
+   begin
+      if Is_Fixnum (V) then
+         return V.N = 1;
+      elsif Is_Flonum (V) then
+         return V.F = 1.0;
+      elsif not Is_Handle (V) then
+         return False;
+      end if;
+      Fetch (H, To_Handle (V), C, Good);
+      return Good and then C.Kind = Cell_Bigint
+        and then C.Name_Len = 1 and then C.Name (1) = '1';
+   end Is_Real_One;
+
    procedure Write_Internal
      (H       : Heap_Type;
       V       : Value;
@@ -724,6 +780,73 @@ is
                         end loop;
                         Put (B, '"', Ok);
                      end if;
+
+                  when Cell_Bigint =>
+                     Put (B, Text_Of (C), Ok);
+
+                  when Cell_Rational =>
+                     declare
+                        Num : constant Value := C.Car;
+                        Den : constant Value := C.Cdr;
+                     begin
+                        Write_Internal
+                          (H, Num, B, Good, Depth - 1, Display);
+                        Ok := Good;
+                        if not Ok then
+                           return;
+                        end if;
+                        Put (B, '/', Ok);
+                        if not Ok then
+                           return;
+                        end if;
+                        Write_Internal
+                          (H, Den, B, Good, Depth - 1, Display);
+                        Ok := Good;
+                     end;
+
+                  when Cell_Complex =>
+                     declare
+                        Re  : constant Value := C.Car;
+                        Im  : constant Value := C.Cdr;
+                        Neg : Boolean;
+                     begin
+                        Write_Internal
+                          (H, Re, B, Good, Depth - 1, Display);
+                        Ok := Good;
+                        if not Ok then
+                           return;
+                        end if;
+                        Neg := Negative_Real (H, Im);
+                        if Neg then
+                           if Is_Real_One (H, Im) then
+                              Put (B, "-i", Ok);
+                           else
+                              Write_Internal
+                                (H, Im, B, Good, Depth - 1, Display);
+                              Ok := Good;
+                              if not Ok then
+                                 return;
+                              end if;
+                              Put (B, 'i', Ok);
+                           end if;
+                        else
+                           Put (B, '+', Ok);
+                           if not Ok then
+                              return;
+                           end if;
+                           if Is_Real_One (H, Im) then
+                              Put (B, 'i', Ok);
+                           else
+                              Write_Internal
+                                (H, Im, B, Good, Depth - 1, Display);
+                              Ok := Good;
+                              if not Ok then
+                                 return;
+                              end if;
+                              Put (B, 'i', Ok);
+                           end if;
+                        end if;
+                     end;
 
                   when Cell_Vector =>
                      Put (B, "#(", Ok);

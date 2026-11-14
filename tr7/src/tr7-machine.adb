@@ -3878,7 +3878,8 @@ is
 
          when Cell_String | Cell_Vector | Cell_Bytevector | Cell_Closure
             | Cell_Primitive | Cell_Environment | Cell_Continuation
-            | Cell_Input_Port | Cell_Output_Port | Cell_Values | Cell_Macro =>
+            | Cell_Input_Port | Cell_Output_Port | Cell_Values | Cell_Macro
+            | Cell_Bigint | Cell_Rational | Cell_Complex =>
             M.Result := M.Ctl;
             M.Mode := Mode_Return;
 

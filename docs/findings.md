@@ -111,6 +111,42 @@ What follows is what to keep, what cost time, and the rules that fall out.
   `2.0e+01` because that is precision-1 `%g`.  Three of these were
   "failures" that were actually correct behaviour.
 
+## Numeric tower (bignums and exact rationals)
+
+- A `Big_Integer` is a controlled value with a heap payload, so it cannot sit
+  in a fixed cell and would make every `Fetch` copy (and every collector
+  root) carry finalization.  The representation chosen here keeps the
+  canonical signed decimal text in the cell's existing `Name` buffer and uses
+  Ada's `Big_Integer` only inside `Tr7.Bignums`/`Tr7.Numbers`.  Bignums then
+  cost one ordinary cell, need no side table, no extra root and no sweep
+  hook, and the precision limit is the existing `Max_Text` (256 digits).
+- `To_String` follows `Integer'Image` and leaves a blank in the sign column of
+  a non-negative value.  Storing that image directly made the first digit a
+  space, so the reader reproduced a leading blank and `Parse` rejected the
+  text.  `Image` strips exactly one leading blank; `Canonical` is the only
+  writer of the cell text.
+- The bignum library's `mod` is not Ada's rule for a negative divisor on this
+  toolchain (measured `7 mod -3 = -4`), while `rem` is correct.  Modulo is
+  therefore `r := X rem Y; if r /= 0 and then sign(r) /= sign(Y) then
+  r := r + Y`, which restores the divisor's sign and keeps the contract in
+  our own proof surface.
+- SPARK cannot prove that an arbitrary string is a valid universal image, so
+  `From_String` creates an unprovable precondition check.  Parsing decimal
+  text with a digit loop of `To_Big_Integer`, multiplication and addition
+  avoids that trusted conversion entirely; all arithmetic terms are
+  `Valid_Big_Integer` by construction.
+- Functions returning `Valid_Big_Integer` are a useful style: a caller can
+  initialize a controlled local from a total conversion function and never
+  has to prove a dynamic predicate at a declaration.  Out parameters of that
+  subtype are usable too, but an *uninitialized* local of the subtype raises
+  at elaboration, so initialization is mandatory even when every path
+  overwrites it.
+- Termination aspects on functions are viral: adding `Always_Terminates` to
+  a function that calls `To_Float` forced a termination proof on the reader's
+  float parser.  Removing the unused numeric-equality function and keeping
+  `To_Float`/`Scalar_To_Float` as procedures (with no recursion: a rational's
+  parts are integers) was smaller than annotating the whole call chain.
+
 **Patterns worth reusing:**
 
 - *Epochs over clearing passes* -- the collector's mark became a scalar

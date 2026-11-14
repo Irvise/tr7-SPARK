@@ -2,6 +2,7 @@ with Ada.Characters.Latin_1; use Ada.Characters.Latin_1;
 with Interfaces; use Interfaces;
 with Tr7.Cells; use Tr7.Cells;
 with Tr7.Config; use Tr7.Config;
+with Tr7.Numbers;
 with Tr7.Pairs; use Tr7.Pairs;
 with Tr7.Writer; use Tr7.Writer;
 with Tr7.Reader;
@@ -92,6 +93,10 @@ is
          when P_Symbol_P           => return "symbol?";
          when P_Char_P             => return "char?";
          when P_Number_P           => return "number?";
+         when P_Integer_P          => return "integer?";
+         when P_Rational_P         => return "rational?";
+         when P_Real_P             => return "real?";
+         when P_Complex_P          => return "complex?";
          when P_Procedure_P        => return "procedure?";
          when P_Set_Car            => return "set-car!";
          when P_Set_Cdr            => return "set-cdr!";
@@ -259,11 +264,13 @@ is
      (V = V and then V <= Long_Float'Last and then V >= -Long_Float'Last);
 
    procedure Add
-     (H      : Heap_Type;
+     (H      : in out Heap_Type;
       Args   : Value;
       Result : out Value;
       Status : out Error_Code)
-     with Pre => H.Ready
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
    is
       Arr  : Value_Array;
       Len  : Natural;
@@ -277,6 +284,10 @@ is
       Status := Error_Type;
       Args_Of (H, Args, Arr, Len, Good);
       if not Good then
+         return;
+      end if;
+      if Tr7.Numbers.Any_Tower_Value (H, Arr, Len) then
+         Tr7.Numbers.Add_All (H, Arr, Len, Result, Status);
          return;
       end if;
 
@@ -323,12 +334,14 @@ is
          end if;
          if Term > 0 then
             if Sum > Fixnum_Max - Term then
-               Status := Error_Overflow;
+               --  Fixnums are the fast path, not the range limit: fall back
+               --  to the exact bignum fold rather than reporting overflow.
+               Tr7.Numbers.Add_All (H, Arr, Len, Result, Status);
                return;
             end if;
          elsif Term < 0 then
             if Sum < Fixnum_Min - Term then
-               Status := Error_Overflow;
+               Tr7.Numbers.Add_All (H, Arr, Len, Result, Status);
                return;
             end if;
          end if;
@@ -340,11 +353,13 @@ is
    end Add;
 
    procedure Sub
-     (H      : Heap_Type;
+     (H      : in out Heap_Type;
       Args   : Value;
       Result : out Value;
       Status : out Error_Code)
-     with Pre => H.Ready
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
    is
       Arr  : Value_Array;
       Len  : Natural;
@@ -358,6 +373,10 @@ is
       Status := Error_Type;
       Args_Of (H, Args, Arr, Len, Good);
       if not Good then
+         return;
+      end if;
+      if Tr7.Numbers.Any_Tower_Value (H, Arr, Len) then
+         Tr7.Numbers.Sub_All (H, Arr, Len, Result, Status);
          return;
       end if;
       if Len = 0 then
@@ -411,7 +430,7 @@ is
 
       if Len = 1 then
          if Acc = Fixnum_Min then
-            Status := Error_Overflow;
+            Tr7.Numbers.Sub_All (H, Arr, Len, Result, Status);
             return;
          end if;
          Result := From_Fixnum (Integer_64 (-Acc));
@@ -429,12 +448,12 @@ is
          end if;
          if Term > 0 then
             if Acc < Fixnum_Min + Term then
-               Status := Error_Overflow;
+               Tr7.Numbers.Sub_All (H, Arr, Len, Result, Status);
                return;
             end if;
          elsif Term < 0 then
             if Acc > Fixnum_Max + Term then
-               Status := Error_Overflow;
+               Tr7.Numbers.Sub_All (H, Arr, Len, Result, Status);
                return;
             end if;
          end if;
@@ -469,11 +488,13 @@ is
    end Mul_Fixnum;
 
    procedure Mul
-     (H      : Heap_Type;
+     (H      : in out Heap_Type;
       Args   : Value;
       Result : out Value;
       Status : out Error_Code)
-     with Pre => H.Ready
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
    is
       Arr  : Value_Array;
       Len  : Natural;
@@ -487,6 +508,10 @@ is
       Status := Error_Type;
       Args_Of (H, Args, Arr, Len, Good);
       if not Good then
+         return;
+      end if;
+      if Tr7.Numbers.Any_Tower_Value (H, Arr, Len) then
+         Tr7.Numbers.Mul_All (H, Arr, Len, Result, Status);
          return;
       end if;
 
@@ -534,7 +559,7 @@ is
          end if;
          Mul_Fixnum (Acc, Term, Acc, Good);
          if not Good then
-            Status := Error_Overflow;
+            Tr7.Numbers.Mul_All (H, Arr, Len, Result, Status);
             return;
          end if;
       end loop;
@@ -571,6 +596,23 @@ is
          Result := True_Value;
          Status := No_Error;
          return;
+      end if;
+
+      if Tr7.Numbers.Any_Tower_Value (H, Arr, Len) then
+         declare
+            CM : Tr7.Numbers.Compare_Mode;
+         begin
+            case Mode is
+               when P_Num_Equal       => CM := Tr7.Numbers.Cmp_Equal;
+               when P_Less            => CM := Tr7.Numbers.Cmp_Less;
+               when P_Greater         => CM := Tr7.Numbers.Cmp_Greater;
+               when P_Less_Equal      => CM := Tr7.Numbers.Cmp_Less_Equal;
+               when P_Greater_Equal   => CM := Tr7.Numbers.Cmp_Greater_Equal;
+               when others            => return;
+            end case;
+            Tr7.Numbers.Compare_All (H, Arr, Len, CM, Result, Status);
+            return;
+         end;
       end if;
 
       if Any_Flonum (Arr, Len) then
@@ -886,7 +928,15 @@ is
       elsif P = P_Char_P then
          Res := Arr (1).Kind = Kind_Character;
       elsif P = P_Number_P then
-         Res := Is_Fixnum (Arr (1)) or else Is_Flonum (Arr (1));
+         Res := Tr7.Numbers.Is_Number (H, Arr (1));
+      elsif P = P_Integer_P then
+         Res := Tr7.Numbers.Is_Integer_Value (H, Arr (1));
+      elsif P = P_Rational_P then
+         Res := Tr7.Numbers.Is_Rational_Value (H, Arr (1));
+      elsif P = P_Real_P then
+         Res := Tr7.Numbers.Is_Real_Value (H, Arr (1));
+      elsif P = P_Complex_P then
+         Res := Tr7.Numbers.Is_Complex_Value (H, Arr (1));
       elsif P = P_Symbol_P then
          Res := Is_Handle (Arr (1));
          if Res then
@@ -2316,27 +2366,16 @@ is
 
    --  The two guards every exact division needs: a zero divisor, and the one
    --  product that would not fit a fixnum (Fixnum_Min / -1).
-   procedure Div_Guard
-     (A      : Fixnum;
-      B      : Fixnum;
-      Status : out Error_Code)
-   is
-   begin
-      if B = 0 then
-         Status := Error_Division_By_Zero;
-      elsif A = Fixnum_Min and then B = -1 then
-         Status := Error_Overflow;
-      else
-         Status := No_Error;
-      end if;
-   end Div_Guard;
+
 
    procedure Abs_Prim
-     (H      : Heap_Type;
+     (H      : in out Heap_Type;
       Args   : Value;
       Result : out Value;
       Status : out Error_Code)
-     with Pre => H.Ready
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
    is
       Arr  : Value_Array;
       Len  : Natural;
@@ -2354,13 +2393,18 @@ is
          Status := Error_Wrong_Arity;
          return;
       end if;
+      if Tr7.Numbers.Is_Tower_Value (H, Arr (1)) then
+         Tr7.Numbers.Abs_Value (H, Arr (1), Result, Status);
+         return;
+      end if;
       Get_Fixnum (Arr (1), N, Good);
       if not Good then
          return;
       end if;
       if N = Fixnum_Min then
-         --  The positive counterpart does not fit a fixnum.
-         Status := Error_Overflow;
+         --  The positive counterpart does not fit a fixnum: the tower
+         --  represents it as a bignum.
+         Tr7.Numbers.Abs_Value (H, Arr (1), Result, Status);
          return;
       end if;
       if N < 0 then
@@ -2395,6 +2439,10 @@ is
          Status := Error_Wrong_Arity;
          return;
       end if;
+      if Tr7.Numbers.Any_Tower_Value (H, Arr, Len) then
+         Tr7.Numbers.Min_Max (H, Arr, Len, Pick, Result, Status);
+         return;
+      end if;
 
       Get_Fixnum (Arr (1), Best, Good);
       if not Good then
@@ -2424,17 +2472,17 @@ is
    end Min_Max_Prim;
 
    procedure Quotient_Prim
-     (H      : Heap_Type;
+     (H      : in out Heap_Type;
       Args   : Value;
       Result : out Value;
       Status : out Error_Code)
-     with Pre => H.Ready
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
    is
       Arr  : Value_Array;
       Len  : Natural;
       Good : Boolean;
-      A    : Fixnum;
-      B    : Fixnum;
    begin
       Result := Void_Value;
       Status := Error_Type;
@@ -2447,34 +2495,22 @@ is
          Status := Error_Wrong_Arity;
          return;
       end if;
-      Get_Fixnum (Arr (1), A, Good);
-      if not Good then
-         return;
-      end if;
-      Get_Fixnum (Arr (2), B, Good);
-      if not Good then
-         return;
-      end if;
-      Div_Guard (A, B, Status);
-      if Status /= No_Error then
-         return;
-      end if;
-      Result := From_Fixnum (Integer_64 (A / B));
-      Status := No_Error;
+      Tr7.Numbers.Integer_Divide
+        (H, Arr (1), Arr (2), Tr7.Numbers.Op_Quotient, Result, Status);
    end Quotient_Prim;
 
    procedure Remainder_Prim
-     (H      : Heap_Type;
+     (H      : in out Heap_Type;
       Args   : Value;
       Result : out Value;
       Status : out Error_Code)
-     with Pre => H.Ready
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
    is
       Arr  : Value_Array;
       Len  : Natural;
       Good : Boolean;
-      A    : Fixnum;
-      B    : Fixnum;
    begin
       Result := Void_Value;
       Status := Error_Type;
@@ -2487,39 +2523,22 @@ is
          Status := Error_Wrong_Arity;
          return;
       end if;
-      Get_Fixnum (Arr (1), A, Good);
-      if not Good then
-         return;
-      end if;
-      Get_Fixnum (Arr (2), B, Good);
-      if not Good then
-         return;
-      end if;
-      if B = 0 then
-         Status := Error_Division_By_Zero;
-         return;
-      end if;
-      if A = Fixnum_Min and then B = -1 then
-         Result := From_Fixnum (0);
-         Status := No_Error;
-         return;
-      end if;
-      Result := From_Fixnum (Integer_64 (A rem B));
-      Status := No_Error;
+      Tr7.Numbers.Integer_Divide
+        (H, Arr (1), Arr (2), Tr7.Numbers.Op_Remainder, Result, Status);
    end Remainder_Prim;
 
    procedure Modulo_Prim
-     (H      : Heap_Type;
+     (H      : in out Heap_Type;
       Args   : Value;
       Result : out Value;
       Status : out Error_Code)
-     with Pre => H.Ready
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
    is
       Arr  : Value_Array;
       Len  : Natural;
       Good : Boolean;
-      A    : Fixnum;
-      B    : Fixnum;
    begin
       Result := Void_Value;
       Status := Error_Type;
@@ -2532,45 +2551,22 @@ is
          Status := Error_Wrong_Arity;
          return;
       end if;
-      Get_Fixnum (Arr (1), A, Good);
-      if not Good then
-         return;
-      end if;
-      Get_Fixnum (Arr (2), B, Good);
-      if not Good then
-         return;
-      end if;
-      if B = 0 then
-         Status := Error_Division_By_Zero;
-         return;
-      end if;
-      if B = -1 then
-         --  A rem -1 is 0 for every A, Fixnum_Min included, and Ada's `mod`
-         --  is Scheme's: the result carries the divisor's sign.
-         Result := From_Fixnum (0);
-         Status := No_Error;
-         return;
-      end if;
-      Result := From_Fixnum (Integer_64 (A mod B));
-      Status := No_Error;
+      Tr7.Numbers.Integer_Divide
+        (H, Arr (1), Arr (2), Tr7.Numbers.Op_Modulo, Result, Status);
    end Modulo_Prim;
 
    procedure Expt_Prim
-     (H      : Heap_Type;
+     (H      : in out Heap_Type;
       Args   : Value;
       Result : out Value;
       Status : out Error_Code)
-     with Pre => H.Ready
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
    is
       Arr  : Value_Array;
       Len  : Natural;
       Good : Boolean;
-      A    : Fixnum;
-      N    : Fixnum;
-      Exp  : Natural range 0 .. 63;
-      Acc  : Fixnum;
-      Prod : Fixnum;
-      Mul_Ok : Boolean;
    begin
       Result := Void_Value;
       Status := Error_Type;
@@ -2583,93 +2579,7 @@ is
          Status := Error_Wrong_Arity;
          return;
       end if;
-      Get_Fixnum (Arr (1), A, Good);
-      if not Good then
-         return;
-      end if;
-      Get_Fixnum (Arr (2), N, Good);
-      if not Good then
-         return;
-      end if;
-
-      if N < 0 then
-         --  A negative power is a fraction unless |A| is 0 or 1, and v1 has no
-         --  rationals: say so rather than return something wrong.
-         if A = 0 then
-            Status := Error_Division_By_Zero;
-         elsif A = 1 then
-            Result := From_Fixnum (1);
-            Status := No_Error;
-         elsif A = -1 then
-            if (Integer_64 (N) mod 2) = 0 then
-               Result := From_Fixnum (1);
-            else
-               Result := From_Fixnum (-1);
-            end if;
-            Status := No_Error;
-         else
-            Status := Error_Not_Implemented;
-         end if;
-         return;
-      end if;
-      if N > 63 then
-         --  |A| >= 2 overflows by exponent 63; 0, 1 and -1 are handled above
-         --  and never grow, so a cap here cannot reject a representable value.
-         if A = 0 then
-            Result := From_Fixnum (0);
-            Status := No_Error;
-         elsif A = 1 then
-            Result := From_Fixnum (1);
-            Status := No_Error;
-         elsif A = -1 then
-            --  Parity still matters when the exponent is large.
-            Result := From_Fixnum
-              ((if (Integer_64 (N) mod 2) = 0 then 1 else -1));
-            Status := No_Error;
-         else
-            Status := Error_Overflow;
-         end if;
-         return;
-      end if;
-
-      Exp := Natural (N);
-      Acc := 1;
-      if A = 0 and then Exp /= 0 then
-         Result := From_Fixnum (0);
-         Status := No_Error;
-         return;
-      end if;
-      if A = 1 then
-         Result := From_Fixnum (1);
-         Status := No_Error;
-         return;
-      end if;
-      if A = -1 then
-         if Exp mod 2 = 1 then
-            Result := From_Fixnum (-1);
-         else
-            Result := From_Fixnum (1);
-         end if;
-         Status := No_Error;
-         return;
-      end if;
-
-      --  |A| >= 2 and the exponent fits: multiply with the same overflow
-      --  guard Mul uses, so an out-of-range power is Error_Overflow.
-      for I in 1 .. Exp loop
-         pragma Loop_Invariant (Acc >= Fixnum_Min);
-         pragma Loop_Invariant (Acc <= Fixnum_Max);
-         pragma Loop_Invariant (Exp <= 63);
-         Mul_Fixnum (Acc, A, Prod, Mul_Ok);
-         if not Mul_Ok then
-            Status := Error_Overflow;
-            return;
-         end if;
-         Acc := Prod;
-      end loop;
-
-      Result := From_Fixnum (Integer_64 (Acc));
-      Status := No_Error;
+      Tr7.Numbers.Expt (H, Arr (1), Arr (2), Result, Status);
    end Expt_Prim;
 
 
@@ -2805,168 +2715,31 @@ is
    --  the divisor is not tiny.  The postcondition states the arithmetic
    --  relation whenever the operation succeeds, which is exactly what the
    --  chain fold below relies on.
-   procedure Div_Float
-     (Acc_F  : in out Long_Float;
-      Term_F : Long_Float;
-      Status : out Error_Code)
-     with
-       Post => (if Status = No_Error
-                then Acc_F = Acc_F'Old / Term_F)
-   is
-   begin
-      Status := No_Error;
-      if Term_F = 0.0 then
-         Status := Error_Division_By_Zero;
-         return;
-      end if;
-      if not In_Range (Acc_F) or else not In_Range (Term_F) then
-         Status := Error_Overflow;
-         return;
-      end if;
-      if abs Term_F >= 1.0
-        or else (abs Acc_F <= 1.0E300 and then abs Term_F >= 1.0E-8)
-      then
-         Acc_F := Acc_F / Term_F;
-      else
-         Status := Error_Overflow;
-      end if;
-   end Div_Float;
+
 
    procedure Div_Prim
-     (H      : Heap_Type;
+     (H      : in out Heap_Type;
       Args   : Value;
       Result : out Value;
       Status : out Error_Code)
-     with Pre => H.Ready
+     with
+       Pre  => H.Ready,
+       Post => H.Ready
    is
-      Arr    : Value_Array;
-      Len    : Natural;
-      Good   : Boolean;
-      Acc    : Fixnum;
-      Term   : Fixnum;
-      Acc_F  : Long_Float := 0.0;
-      Term_F : Long_Float;
-      Exact  : Boolean;
+      Arr  : Value_Array;
+      Len  : Natural;
+      Good : Boolean;
    begin
       Result := Void_Value;
-      Acc := 0;
       Status := Error_Type;
       Args_Of (H, Args, Arr, Len, Good);
       if not Good then
          return;
       end if;
-      if Len = 0 then
-         Status := Error_Wrong_Arity;
-         return;
-      end if;
-
-      --  One operand is the reciprocal.  The reciprocal of 1 and -1 is
-      --  exact; every other reciprocal is the double 1.0/x.
-      if Len = 1 then
-         if Is_Fixnum (Arr (1)) then
-            Get_Fixnum (Arr (1), Acc, Good);
-            if not Good then
-               return;
-            end if;
-            if Acc = 0 then
-               Status := Error_Division_By_Zero;
-               return;
-            end if;
-            if Acc = 1 or else Acc = -1 then
-               Result := From_Fixnum (Acc);
-               Status := No_Error;
-               return;
-            end if;
-            Acc_F := 1.0;
-            Div_Float (Acc_F, Long_Float (Acc), Status);
-            if Status /= No_Error then
-               return;
-            end if;
-            Result := From_Flonum (Acc_F);
-            Status := No_Error;
-            return;
-         elsif Is_Flonum (Arr (1)) then
-            Acc_F := 1.0;
-            Div_Float (Acc_F, Arr (1).F, Status);
-            if Status /= No_Error then
-               return;
-            end if;
-            Result := From_Flonum (Acc_F);
-            Status := No_Error;
-            return;
-         else
-            return;
-         end if;
-      end if;
-
-      --  Chain: fold left.  Exact while every step divides evenly, then
-      --  continue in double precision for the rest of the operands.  The
-      --  earlier version returned at the first inexact step, silently
-      --  dropping the remaining terms.
-      if Is_Fixnum (Arr (1)) then
-         Get_Fixnum (Arr (1), Acc, Good);
-         if not Good then
-            return;
-         end if;
-         Exact := True;
-      elsif Is_Flonum (Arr (1)) then
-         Acc_F := Arr (1).F;
-         Exact := False;
-      else
-         return;
-      end if;
-
-      for I in 2 .. Len loop
-         pragma Loop_Invariant (Len <= Arr'Length);
-         pragma Loop_Invariant (H.Ready);
-         if not Is_Number (Arr (I)) then
-            return;
-         end if;
-         if Exact then
-            if Is_Fixnum (Arr (I)) then
-               Get_Fixnum (Arr (I), Term, Good);
-               if not Good then
-                  return;
-               end if;
-               if Term = 0 then
-                  Status := Error_Division_By_Zero;
-                  return;
-               end if;
-               Div_Guard (Acc, Term, Status);
-               if Status /= No_Error then
-                  return;
-               end if;
-               if Acc mod Term = 0 then
-                  Acc := Acc / Term;
-               else
-                  Acc_F := Long_Float (Acc) / Long_Float (Term);
-                  Exact := False;
-               end if;
-            else
-               --  First flonum: continue as a double chain.
-               Acc_F := Long_Float (Acc);
-               Term_F := As_Float (Arr (I));
-               Div_Float (Acc_F, Term_F, Status);
-               if Status /= No_Error then
-                  return;
-               end if;
-               Exact := False;
-            end if;
-         else
-            Term_F := As_Float (Arr (I));
-            Div_Float (Acc_F, Term_F, Status);
-            if Status /= No_Error then
-               return;
-            end if;
-         end if;
-      end loop;
-
-      if Exact then
-         Result := From_Fixnum (Integer_64 (Acc));
-      else
-         Result := From_Flonum (Acc_F);
-      end if;
-      Status := No_Error;
+      --  Division always goes through the tower: an exact quotient that
+      --  does not divide evenly is a rational, and one inexact operand
+      --  still makes the whole chain inexact.
+      Tr7.Numbers.Div_All (H, Arr, Len, Result, Status);
    end Div_Prim;
 
    procedure Exact_To_Inexact_Prim
@@ -2989,6 +2762,10 @@ is
       Check_Arity (Len, 1, 1, Good);
       if not Good then
          Status := Error_Wrong_Arity;
+         return;
+      end if;
+      if Tr7.Numbers.Is_Tower_Value (H, Arr (1)) then
+         Tr7.Numbers.Exact_To_Inexact (H, Arr (1), Result, Status);
          return;
       end if;
 
@@ -3994,7 +3771,7 @@ is
          Status := Error_Wrong_Arity;
          return;
       end if;
-      if not (Is_Fixnum (Arr (1)) or else Is_Flonum (Arr (1))) then
+      if not Tr7.Numbers.Is_Number (H, Arr (1)) then
          return;
       end if;
       Write_Value (H, Arr (1), B, Good);
@@ -4082,7 +3859,7 @@ is
       if Pos <= C.Name_Len then
          return;
       end if;
-      if Is_Fixnum (V) or else Is_Flonum (V) then
+      if Tr7.Numbers.Is_Number (H, V) then
          Result := V;
       end if;
    end String_To_Number_Prim;
@@ -4114,18 +3891,46 @@ is
          Status := Error_Wrong_Arity;
          return;
       end if;
-      if P = P_Exact_P then
-         if not (Is_Fixnum (Arr (1)) or else Is_Flonum (Arr (1))) then
+      if P = P_Exact_P or else P = P_Inexact_P then
+         if not Tr7.Numbers.Is_Number (H, Arr (1)) then
             return;
          end if;
-         Result := Bool (Is_Fixnum (Arr (1)));
+         if P = P_Exact_P then
+            Result := Bool (Tr7.Numbers.Is_Exact (H, Arr (1)));
+         else
+            Result := Bool (not Tr7.Numbers.Is_Exact (H, Arr (1)));
+         end if;
          Status := No_Error;
          return;
-      elsif P = P_Inexact_P then
-         if not (Is_Fixnum (Arr (1)) or else Is_Flonum (Arr (1))) then
-            return;
-         end if;
-         Result := Bool (Is_Flonum (Arr (1)));
+      end if;
+      if Tr7.Numbers.Is_Tower_Value (H, Arr (1)) then
+         case P is
+            when P_Zero_P =>
+               Res := Tr7.Numbers.Is_Zero_Number (H, Arr (1));
+            when P_Positive_P =>
+               if not Tr7.Numbers.Is_Real_Value (H, Arr (1)) then
+                  return;
+               end if;
+               Res := Tr7.Numbers.Is_Positive_Number (H, Arr (1));
+            when P_Negative_P =>
+               if not Tr7.Numbers.Is_Real_Value (H, Arr (1)) then
+                  return;
+               end if;
+               Res := Tr7.Numbers.Is_Negative_Number (H, Arr (1));
+            when P_Odd_P | P_Even_P =>
+               if not Tr7.Numbers.Is_Exact_Integer (H, Arr (1)) then
+                  return;
+               end if;
+               if P = P_Odd_P then
+                  Res := Tr7.Numbers.Is_Odd_Integer (H, Arr (1));
+               else
+                  Res := Tr7.Numbers.Is_Even_Integer (H, Arr (1));
+               end if;
+            when others =>
+               Status := Error_Not_Implemented;
+               return;
+         end case;
+         Result := Bool (Res);
          Status := No_Error;
          return;
       end if;
@@ -4690,8 +4495,16 @@ is
          return;
       end if;
       for I in 2 .. Len loop
+         pragma Loop_Invariant (Len <= Arr'Length);
          if P = P_Eqv_P then
-            Ok := Ok and then Same_Value (Arr (1), Arr (I));
+            if Tr7.Numbers.Is_Number (H, Arr (1))
+              and then Tr7.Numbers.Is_Number (H, Arr (I))
+            then
+               Ok := Ok and then
+                 Tr7.Numbers.Eqv_Numeric (H, Arr (1), Arr (I));
+            else
+               Ok := Ok and then Same_Value (Arr (1), Arr (I));
+            end if;
          elsif P = P_Boolean_Equal then
             Ok := Ok
               and then Arr (1).Kind = Kind_Boolean
@@ -4789,6 +4602,7 @@ is
          when P_Null_P | P_Pair_P | P_Not | P_String_P | P_Vector_P
            | P_Bytevector_P | P_Port_P | P_Eof_Object_P
            | P_Boolean_P | P_Symbol_P | P_Char_P | P_Number_P
+           | P_Integer_P | P_Rational_P | P_Real_P | P_Complex_P
            | P_Procedure_P | P_Values_P =>
             Predicate (H, Args, P, Result, Status);
 

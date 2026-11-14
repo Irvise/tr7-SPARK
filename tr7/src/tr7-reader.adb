@@ -1,9 +1,11 @@
 with Ada.Characters.Latin_1; use Ada.Characters.Latin_1;
 with Interfaces; use Interfaces;
+with Tr7.Bignums;
 with Tr7.Cells; use Tr7.Cells;
 with Tr7.Config; use Tr7.Config;
 with Tr7.IEEE;
 with Tr7.Pairs; use Tr7.Pairs;
+with Tr7.Runtime; use Tr7.Runtime;
 
 package body Tr7.Reader with
    SPARK_Mode => On
@@ -22,6 +24,36 @@ is
 
    function Is_Sign (C : Character) return Boolean is
      (C = '+' or else C = '-');
+
+   --  A whole token is an integer when it is an optional sign followed by at
+   --  least one digit.  Parse_Integer answers the same question for values
+   --  it can hold; this one must also accept a value too large for a fixnum,
+   --  which Parse_Integer rejects before it has seen the trailing digits.
+   function Is_Integer_Token (Text : String) return Boolean
+     with Pre => Text'First >= 1 and then Text'Last < Natural'Last
+   is
+      Pos : Natural := Text'First;
+   begin
+      if Text'Length = 0 then
+         return False;
+      end if;
+      if Is_Sign (Text (Pos)) then
+         Pos := Pos + 1;
+      end if;
+      if Pos > Text'Last then
+         return False;
+      end if;
+      while Pos <= Text'Last loop
+         pragma Loop_Invariant (Pos >= Text'First);
+         pragma Loop_Invariant (Pos <= Text'Last + 1);
+         pragma Loop_Variant (Decreases => Text'Last - Pos + 1);
+         if not Is_Digit (Text (Pos)) then
+            return False;
+         end if;
+         Pos := Pos + 1;
+      end loop;
+      return True;
+   end Is_Integer_Token;
 
    function To_Lower (C : Character) return Character is
      (if C in 'A' .. 'Z' then
@@ -156,6 +188,60 @@ is
       end if;
       Ok := N in Fixnum_Min .. Fixnum_Max;
    end Parse_Integer;
+
+   --  Turn an integer token into a value: a fixnum when it fits, a
+   --  Cell_Bigint otherwise.  Used by ordinary atoms and by the two halves
+   --  of a rational literal.
+   procedure Integer_Value
+     (H      : in out Heap_Type;
+      Text   : String;
+      Result : out Value;
+      Status : out Read_Status)
+     with
+       Pre  => H.Ready
+         and then Text'First >= 1
+         and then Text'Last < Natural'Last
+         and then Text'Length <= Max_Text,
+       Post => H.Ready
+   is
+      Is_Num : Boolean;
+      Num    : Integer_64;
+      Ok     : Boolean;
+   begin
+      Result := Nil_Value;
+      Status := Read_Error;
+      Parse_Integer (Text, Is_Num, Num, Ok);
+      if not Is_Num then
+         return;
+      end if;
+      if Ok then
+         Result := From_Fixnum (Num);
+         Status := Read_Ok;
+         return;
+      end if;
+      if not Is_Integer_Token (Text) then
+         return;
+      end if;
+      declare
+         T    : Text_Buffer;
+         TLen : Natural;
+         C_OK : Boolean;
+         Hd   : Handle;
+      begin
+         Tr7.Bignums.Canonical (Text, T, TLen, C_OK);
+         if not C_OK then
+            return;
+         end if;
+         New_Bigint (H, T (1 .. TLen), Hd, C_OK);
+         if not C_OK then
+            Status := Read_Heap_Full;
+            return;
+         end if;
+         Result := From_Handle (Hd);
+         Status := Read_Ok;
+      end;
+   end Integer_Value;
+
 
    --  Powers of ten up to 10**22: every one of them still has all its bits
    --  in a double (10**22 = 2**22 * 5**22 and 5**22 fits in 53), so a single
@@ -703,8 +789,6 @@ is
       Buf    : Text_Buffer := (others => ' ');
       Len    : Natural;
       Ok     : Boolean;
-      Is_Num : Boolean;
-      Num    : Integer_64;
       Is_Flt : Boolean;
       Flt    : Long_Float;
       Quote_Sym : Value;
@@ -1161,14 +1245,57 @@ is
          return;
       end if;
 
-      Parse_Integer (Buf (1 .. Len), Is_Num, Num, Ok);
-      if Is_Num then
-         if not Ok then
-            return;
+      declare
+         Slash : Natural := 0;
+      begin
+         for I in 1 .. Len loop
+            if Buf (I) = '/' then
+               Slash := I;
+               exit;
+            end if;
+         end loop;
+         if Slash > 1 and then Slash < Len
+           and then Is_Integer_Token (Buf (1 .. Slash - 1))
+           and then Is_Integer_Token (Buf (Slash + 1 .. Len))
+         then
+            declare
+               N_V  : Value;
+               D_V  : Value;
+               N_St : Read_Status;
+               D_St : Read_Status;
+               R_St : Error_Code;
+            begin
+               Integer_Value (H, Buf (1 .. Slash - 1), N_V, N_St);
+               if N_St /= Read_Ok then
+                  return;
+               end if;
+               Integer_Value (H, Buf (Slash + 1 .. Len), D_V, D_St);
+               if D_St /= Read_Ok then
+                  return;
+               end if;
+               Tr7.Bignums.Make_Rational (H, N_V, D_V, Result, R_St);
+               if R_St = No_Error then
+                  Status := Read_Ok;
+               elsif R_St = Error_Heap_Full then
+                  Status := Read_Heap_Full;
+               end if;
+               return;
+            end;
          end if;
-         Result := From_Fixnum (Num);
-         Status := Read_Ok;
-         return;
+      end;
+
+      if Is_Integer_Token (Buf (1 .. Len)) then
+         declare
+            I_St : Read_Status;
+         begin
+            Integer_Value (H, Buf (1 .. Len), Result, I_St);
+            if I_St = Read_Ok then
+               Status := Read_Ok;
+            elsif I_St = Read_Heap_Full then
+               Status := Read_Heap_Full;
+            end if;
+            return;
+         end;
       end if;
 
       Parse_Float (Buf (1 .. Len), Is_Flt, Flt, Ok);

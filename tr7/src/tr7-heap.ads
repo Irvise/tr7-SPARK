@@ -312,6 +312,43 @@ is
        Pre  => H.Ready,
        Post => H.Ready and then (if Ok then Result.Index in Valid_Cell_Index);
 
+   --  An exact integer outside the fixnum range: its canonical signed
+   --  decimal text is copied into the cell (the Tr7.Bignums boundary turns
+   --  it into Ada's Big_Integer for arithmetic).
+   procedure New_Bigint
+     (H      : in out Heap_Type;
+      Text   : String;
+      Result : out Handle;
+      Ok     : out Boolean)
+     with
+       Pre  => H.Ready
+         and then Text'First >= 1
+         and then Text'Last < Natural'Last
+         and then Text'Length <= Max_Text,
+       Post => H.Ready and then (if Ok then Result.Index in Valid_Cell_Index);
+
+   --  A normalized exact rational (Car numerator, Cdr denominator).
+   procedure New_Rational
+     (H      : in out Heap_Type;
+      Num    : Value;
+      Den    : Value;
+      Result : out Handle;
+      Ok     : out Boolean)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready and then (if Ok then Result.Index in Valid_Cell_Index);
+
+   --  A complex number (Car real part, Cdr imaginary part).
+   procedure New_Complex
+     (H      : in out Heap_Type;
+      Real   : Value;
+      Imag   : Value;
+      Result : out Handle;
+      Ok     : out Boolean)
+     with
+       Pre  => H.Ready,
+       Post => H.Ready and then (if Ok then Result.Index in Valid_Cell_Index);
+
    --  Move a port's position (input) or length (output).
    procedure Set_Port_Pos
      (H   : in out Heap_Type;

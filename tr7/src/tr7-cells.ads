@@ -38,7 +38,22 @@ is
       --  A syntax-rules transformer: Car holds the literals list, Cdr the
       --  rules (each a (pattern . template) pair).  Marking is kind-agnostic,
       --  so the rules are kept alive by the ordinary Car/Cdr edges.
-      Cell_Macro);
+      Cell_Macro,
+      --  Exact integer outside the fixnum range.  The canonical signed
+      --  decimal text lives in Name/Name_Len -- the same buffer strings use
+      --  -- so a bignum is one ordinary cell with no side table and no
+      --  extra collector root.  Tr7.Bignums converts the text to and from
+      --  Ada's Big_Integer to do the arithmetic.  Max_Text digits is the
+      --  documented precision bound.
+      Cell_Bigint,
+      --  Exact rational: Car is the numerator and Cdr the denominator, both
+      --  exact integers (fixnum or Cell_Bigint).  The denominator is
+      --  positive and the fraction is normalized; a denominator of one is
+      --  never represented.  Marking follows Car/Cdr like any other cell.
+      Cell_Rational,
+      --  Complex number: Car is the real part and Cdr the imaginary part,
+      --  both real values.  Marking follows Car/Cdr.
+      Cell_Complex);
 
    subtype Text_Buffer is String (1 .. Max_Text);
 
