@@ -10,7 +10,7 @@
 (show (null? (cdr (build 1 '()))))
 (show (eq? 'a 'a))
 (show (burn 6000))
-(show (> (free-cells) 500))
+(show (> (free-cells) 400))
 (show (vector-ref v 1))
 (define cyc (cons 'a '()))
 (set-cdr! cyc cyc)

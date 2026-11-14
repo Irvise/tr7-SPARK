@@ -4,9 +4,9 @@
 
 M0–M5 are complete and the v1 scope below is implemented: the verified core,
 REPL and script runner, the C ABI subset, the conformance suites, and the
-mark-sweep reachability proof.  The gate is green at 4,578 checks (level 4,
+mark-sweep reachability proof.  The gate is green at 6,138 checks (level 4,
 5 s per check, `--checks-as-errors`), with no unproved, justified or assumed
-checks and 56 green suites (each also run under stress GC).
+checks and 58 green suites (each also run under stress GC).
 
 Design decisions taken along the way are recorded in `docs/findings.md`; the
 ones that shape the code most are the product-safe fixnum range
@@ -57,12 +57,13 @@ In v1:
 - C ABI: core subset implemented, all other `tr7.h` symbols present as stubs;
 - REPL and script runner.
 
-Not in v1: full hygienic `syntax-rules` (a pragmatic subset is implemented),
-a real library system (`import` is accepted as a compatibility declaration and
+Not in v1: a complete R7RS mark/rename hygiene algorithm (`syntax-rules` is
+hygienic for template-introduced binders, with documented ellipsis limits), a
+real library system (`import` is accepted as a compatibility declaration and
 loads the SRFI-1 prelude), `load`, the full SRFI catalogue (SRFI-1 and SRFI-9
-records are implemented), full Unicode tables, bignums/rationals/complex, the
-full TR7 debug/trace/extension API, and bit-level tagged-pointer ABI
-compatibility.
+records are implemented), full Unicode tables, unbounded-precision bignums
+(the numeric tower caps them at 256 decimal digits), the full TR7
+debug/trace/extension API, and bit-level tagged-pointer ABI compatibility.
 
 ## Crates
 

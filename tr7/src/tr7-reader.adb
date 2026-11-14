@@ -1,9 +1,11 @@
 with Ada.Characters.Latin_1; use Ada.Characters.Latin_1;
 with Interfaces; use Interfaces;
+with Tr7.Bignums;
 with Tr7.Cells; use Tr7.Cells;
 with Tr7.Config; use Tr7.Config;
 with Tr7.IEEE;
 with Tr7.Pairs; use Tr7.Pairs;
+with Tr7.Runtime; use Tr7.Runtime;
 
 package body Tr7.Reader with
    SPARK_Mode => On
@@ -22,6 +24,36 @@ is
 
    function Is_Sign (C : Character) return Boolean is
      (C = '+' or else C = '-');
+
+   --  A whole token is an integer when it is an optional sign followed by at
+   --  least one digit.  Parse_Integer answers the same question for values
+   --  it can hold; this one must also accept a value too large for a fixnum,
+   --  which Parse_Integer rejects before it has seen the trailing digits.
+   function Is_Integer_Token (Text : String) return Boolean
+     with Pre => Text'First >= 1 and then Text'Last < Natural'Last
+   is
+      Pos : Natural := Text'First;
+   begin
+      if Text'Length = 0 then
+         return False;
+      end if;
+      if Is_Sign (Text (Pos)) then
+         Pos := Pos + 1;
+      end if;
+      if Pos > Text'Last then
+         return False;
+      end if;
+      while Pos <= Text'Last loop
+         pragma Loop_Invariant (Pos >= Text'First);
+         pragma Loop_Invariant (Pos <= Text'Last + 1);
+         pragma Loop_Variant (Decreases => Text'Last - Pos + 1);
+         if not Is_Digit (Text (Pos)) then
+            return False;
+         end if;
+         Pos := Pos + 1;
+      end loop;
+      return True;
+   end Is_Integer_Token;
 
    function To_Lower (C : Character) return Character is
      (if C in 'A' .. 'Z' then
@@ -157,6 +189,60 @@ is
       Ok := N in Fixnum_Min .. Fixnum_Max;
    end Parse_Integer;
 
+   --  Turn an integer token into a value: a fixnum when it fits, a
+   --  Cell_Bigint otherwise.  Used by ordinary atoms and by the two halves
+   --  of a rational literal.
+   procedure Integer_Value
+     (H      : in out Heap_Type;
+      Text   : String;
+      Result : out Value;
+      Status : out Read_Status)
+     with
+       Pre  => H.Ready
+         and then Text'First >= 1
+         and then Text'Last < Natural'Last
+         and then Text'Length <= Max_Text,
+       Post => H.Ready
+   is
+      Is_Num : Boolean;
+      Num    : Integer_64;
+      Ok     : Boolean;
+   begin
+      Result := Nil_Value;
+      Status := Read_Error;
+      Parse_Integer (Text, Is_Num, Num, Ok);
+      if not Is_Num then
+         return;
+      end if;
+      if Ok then
+         Result := From_Fixnum (Num);
+         Status := Read_Ok;
+         return;
+      end if;
+      if not Is_Integer_Token (Text) then
+         return;
+      end if;
+      declare
+         T    : Text_Buffer;
+         TLen : Natural;
+         C_OK : Boolean;
+         Hd   : Handle;
+      begin
+         Tr7.Bignums.Canonical (Text, T, TLen, C_OK);
+         if not C_OK then
+            return;
+         end if;
+         New_Bigint (H, T (1 .. TLen), Hd, C_OK);
+         if not C_OK then
+            Status := Read_Heap_Full;
+            return;
+         end if;
+         Result := From_Handle (Hd);
+         Status := Read_Ok;
+      end;
+   end Integer_Value;
+
+
    --  Powers of ten up to 10**22: every one of them still has all its bits
    --  in a double (10**22 = 2**22 * 5**22 and 5**22 fits in 53), so a single
    --  multiply or divide by one of them is a single rounding -- unlike a
@@ -175,6 +261,172 @@ is
    --  digits dropped beyond that only cost precision, with pre-point ones
    --  counted into the exponent so the magnitude stays right.  Out of range
    --  is a failed parse (a read error), never a silently wrong value.
+   --  Parse a whole number token that is known to be one (used by the two
+   --  halves of a complex literal).  Integers, rationals and decimals are
+   --  tried; anything else leaves Ok false.
+   procedure Number_Text
+     (H      : in out Heap_Type;
+      Text   : String;
+      Result : out Value;
+      Ok     : out Boolean)
+     with
+       Pre  => H.Ready
+         and then Text'First >= 1
+         and then Text'Last < Natural'Last
+         and then Text'Length <= Max_Text,
+       Post => H.Ready
+   is
+      I_St : Read_Status;
+      Slash : Natural := 0;
+      Is_Flt : Boolean;
+      Flt    : Long_Float;
+      F_Ok   : Boolean;
+      R_St   : Error_Code;
+   begin
+      Result := Nil_Value;
+      Ok := False;
+      if Text'Length = 0 then
+         return;
+      end if;
+      if Is_Integer_Token (Text) then
+         Integer_Value (H, Text, Result, I_St);
+         Ok := I_St = Read_Ok;
+         return;
+      end if;
+      for I in Text'Range loop
+         if Text (I) = '/' then
+            Slash := I;
+            exit;
+         end if;
+      end loop;
+      if Slash > Text'First and then Slash < Text'Last
+        and then Is_Integer_Token (Text (Text'First .. Slash - 1))
+        and then Is_Integer_Token (Text (Slash + 1 .. Text'Last))
+      then
+         declare
+            N_V : Value;
+            D_V : Value;
+            N_St : Read_Status;
+            D_St : Read_Status;
+         begin
+            Integer_Value (H, Text (Text'First .. Slash - 1), N_V, N_St);
+            if N_St /= Read_Ok then
+               return;
+            end if;
+            Integer_Value (H, Text (Slash + 1 .. Text'Last), D_V, D_St);
+            if D_St /= Read_Ok then
+               return;
+            end if;
+            Tr7.Bignums.Make_Rational (H, N_V, D_V, Result, R_St);
+            Ok := R_St = No_Error;
+         end;
+         return;
+      end if;
+      Parse_Float (Text, Is_Flt, Flt, F_Ok);
+      if Is_Flt and then F_Ok then
+         Result := From_Flonum (Flt);
+         Ok := True;
+      end if;
+   end Number_Text;
+
+   --  Try to read a complex literal: a body ending in i, with either a
+   --  split before the imaginary part's sign or a bare imaginary part.
+   --  Success says the token really was a number; otherwise the caller
+   --  interns it as a symbol.
+   procedure Try_Complex
+     (H       : in out Heap_Type;
+      Text    : String;
+      Result  : out Value;
+      Success : out Boolean;
+      Status  : out Read_Status)
+     with
+       Pre  => H.Ready
+         and then Text'First >= 1
+         and then Text'Last < Natural'Last
+         and then Text'Length <= Max_Text,
+       Post => H.Ready
+   is
+      Split : Natural := 0;
+      Re    : Value := From_Fixnum (0);
+      Im    : Value;
+      RT    : Value;
+      IT    : Value;
+      R_Ok  : Boolean;
+      I_Ok  : Boolean;
+      Hd    : Handle;
+      Good  : Boolean;
+   begin
+      Result := Nil_Value;
+      Success := False;
+      Status := Read_Error;
+      if Text'Length < 1
+        or else Text (Text'Last) /= 'i'
+      then
+         return;
+      end if;
+      declare
+         Body_Last : constant Natural := Text'Last - 1;
+      begin
+         if Body_Last < Text'First then
+            --  A bare "i" is a symbol, not the imaginary unit: R7RS needs
+            --  the sign, as in +i / -i.
+            return;
+         end if;
+         for I in reverse Text'First .. Body_Last loop
+            if (Text (I) = '+' or else Text (I) = '-')
+              and then I > Text'First
+              and then Text (I - 1) /= 'e'
+              and then Text (I - 1) /= 'E'
+            then
+               Split := I;
+               exit;
+            end if;
+         end loop;
+         if Split > Text'First then
+            Number_Text
+              (H, Text (Text'First .. Split - 1), RT, R_Ok);
+            if not R_Ok then
+               return;
+            end if;
+            Re := RT;
+            if Split = Body_Last
+              and then (Text (Split) = '+' or else Text (Split) = '-')
+            then
+               Im := From_Fixnum
+                 (if Text (Split) = '-' then -1 else 1);
+            else
+               Number_Text
+                 (H, Text (Split .. Body_Last), IT, I_Ok);
+               if not I_Ok then
+                  return;
+               end if;
+               Im := IT;
+            end if;
+         else
+            --  No split: a bare imaginary part, with an optional sign.
+            if Body_Last = Text'First
+              and then (Text (Text'First) = '+' or else Text (Text'First) = '-')
+            then
+               Im := From_Fixnum (if Text (Text'First) = '-' then -1 else 1);
+            else
+               Number_Text (H, Text (Text'First .. Body_Last), IT, I_Ok);
+               if not I_Ok then
+                  return;
+               end if;
+               Im := IT;
+            end if;
+         end if;
+      end;
+      New_Complex (H, Re, Im, Hd, Good);
+      if not Good then
+         Status := Read_Heap_Full;
+         return;
+      end if;
+      Result := From_Handle (Hd);
+      Success := True;
+      Status := Read_Ok;
+   end Try_Complex;
+
    procedure Parse_Float
      (Text     : String;
       Is_Float : out Boolean;
@@ -703,8 +955,6 @@ is
       Buf    : Text_Buffer := (others => ' ');
       Len    : Natural;
       Ok     : Boolean;
-      Is_Num : Boolean;
-      Num    : Integer_64;
       Is_Flt : Boolean;
       Flt    : Long_Float;
       Quote_Sym : Value;
@@ -1169,14 +1419,57 @@ is
          return;
       end if;
 
-      Parse_Integer (Buf (1 .. Len), Is_Num, Num, Ok);
-      if Is_Num then
-         if not Ok then
-            return;
+      declare
+         Slash : Natural := 0;
+      begin
+         for I in 1 .. Len loop
+            if Buf (I) = '/' then
+               Slash := I;
+               exit;
+            end if;
+         end loop;
+         if Slash > 1 and then Slash < Len
+           and then Is_Integer_Token (Buf (1 .. Slash - 1))
+           and then Is_Integer_Token (Buf (Slash + 1 .. Len))
+         then
+            declare
+               N_V  : Value;
+               D_V  : Value;
+               N_St : Read_Status;
+               D_St : Read_Status;
+               R_St : Error_Code;
+            begin
+               Integer_Value (H, Buf (1 .. Slash - 1), N_V, N_St);
+               if N_St /= Read_Ok then
+                  return;
+               end if;
+               Integer_Value (H, Buf (Slash + 1 .. Len), D_V, D_St);
+               if D_St /= Read_Ok then
+                  return;
+               end if;
+               Tr7.Bignums.Make_Rational (H, N_V, D_V, Result, R_St);
+               if R_St = No_Error then
+                  Status := Read_Ok;
+               elsif R_St = Error_Heap_Full then
+                  Status := Read_Heap_Full;
+               end if;
+               return;
+            end;
          end if;
-         Result := From_Fixnum (Num);
-         Status := Read_Ok;
-         return;
+      end;
+
+      if Is_Integer_Token (Buf (1 .. Len)) then
+         declare
+            I_St : Read_Status;
+         begin
+            Integer_Value (H, Buf (1 .. Len), Result, I_St);
+            if I_St = Read_Ok then
+               Status := Read_Ok;
+            elsif I_St = Read_Heap_Full then
+               Status := Read_Heap_Full;
+            end if;
+            return;
+         end;
       end if;
 
       Parse_Float (Buf (1 .. Len), Is_Flt, Flt, Ok);
@@ -1188,6 +1481,17 @@ is
          Status := Read_Ok;
          return;
       end if;
+
+      declare
+         OK_Cx  : Boolean;
+         Cx_St  : Read_Status;
+      begin
+         Try_Complex (H, Buf (1 .. Len), Result, OK_Cx, Cx_St);
+         if OK_Cx then
+            Status := Cx_St;
+            return;
+         end if;
+      end;
 
       Intern (H, Buf (1 .. Len), Result, Ok);
       if Ok then

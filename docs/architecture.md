@@ -367,44 +367,63 @@ reader wraps `#u8(1 2 3)` into `(bytevector 1 2 3)` exactly as it does
 
 ## Numbers
 
-Exact integers are fixnums in `-(2**31) .. 2**31 - 1` (see `Tr7.Config`).  The
-range covers everything R7RS requires -- indexes of lists, vectors, bytevectors
-and strings, and the results of their `length` procedures -- and it is chosen so
-that a product always fits in `Integer_64`.  Multiplication is therefore a
-direct multiply plus a range check, with the exactness of the result stated as
-a postcondition.  Out-of-range results are reported as `Error_Overflow`, never
-silently wrapped or truncated.  A wider fixnum would require a wide multiply
-whose exactness the SMT provers cannot discharge; `docs/findings.md` records
-the measurements and the route back (big-integer contracts).
+The numeric tower is fixnum, bignum, exact rational and flonum.  Fixnums stay
+immediate and keep their direct, proved arithmetic paths.  When a fixnum
+operation would overflow, `Tr7.Primitives` falls back to `Tr7.Numbers`, which
+does the operation exactly and returns a fixnum again when the result fits.
 
-`/` has the no-rationals rule: exact when every step divides evenly, the
-inexact double otherwise (`(/ 6 3)` is `2`, `(/ 1 2)` is `0.5`), one
-flonum anywhere making the chain inexact.  Its float division branches the
-way the provers can discharge -- a divisor of at least one, or both
-operands inside a fixed window whose ratio fits the range -- and reports an
-overflow rather than producing an infinity.
+A bignum is an ordinary `Cell_Bigint` whose `Name`/`Name_Len` hold the
+canonical signed decimal text (the same buffer strings use).  That keeps the
+collector unchanged -- the value is inline, so there is no side table, no
+extra root and no finalization -- and caps a bignum at `Max_Text` decimal
+digits (about 850 bits).  `Tr7.Bignums` converts the text to and from Ada's
+`Big_Integer`: the standard library is the trusted arithmetic engine, the
+representation and its bound are ours.  `Image` strips the sign-column blank
+that Ada's image leaves on non-negative values.  The library's `mod` disagrees
+with the language rule for a negative divisor (measured: `7 mod -3` gives
+`-4`), so modulo is derived from `rem` and a sign adjustment in
+`Tr7.Numbers`.
 
-Exact division follows Scheme through Ada: `quotient` is Ada's `/`
-(truncation toward zero), `remainder` is `rem` (dividend's sign) and `modulo`
-is `mod` (divisor's sign) -- all three share one guard for a zero divisor and
-for the single product `Fixnum_Min / -1` that no fixnum holds.  `abs` rejects
-`Fixnum_Min` for the same reason, and `expt` on exact operands answers powers
-of 0, 1 and -1 without a loop, overflows above exponent 63 (a base of at
-least 2 cannot stay in a fixnum longer) and reports a negative power of
-anything else as `not implemented` because v1 has no rationals.
+An exact rational is a `Cell_Rational` whose `Car` is the numerator and whose
+`Cdr` is the denominator, both exact integers (fixnum or bignum).  Every
+construction normalizes through `Tr7.Bignums.From_Big_Ratio`: the denominator
+is positive, the fraction is reduced, and a denominator of one is returned as
+a plain integer instead.  Rational arithmetic is cross-multiplied on
+`Big_Integer` and normalized again, so `(+ 1/2 1/3)` is `5/6` and
+`(= 1/2 2/4)` is true.
 
-Every one of these operations also takes mixed flonum operands where R7RS
-requires it: one inexact argument makes the result inexact.  `abs` is an
-`abs` on the double; `min`/`max` pick a winner with comparisons only (an
-exact winner converts, so `(max 3 1 2.0)` is `3.0`); the integer division
-trio converts integral flonum operands into the fixnum range (a non-integer
-or out-of-range flonum operand is a type error / overflow by name) and
-computes with the same integer cores, returning the result as a flonum;
-`expt` with any inexact operand goes through libm's correctly rounded `pow`
-behind the `Tr7.IEEE` trusted boundary (`tests/arith.scm`), with NaN mapped
-to `not implemented`, infinities to overflow, and `0.0` to a negative power
-to a division by zero.  A negative base with a fractional exponent is also
-`not implemented`: the result leaves the reals.
+`Tr7.Numbers` is the dispatch layer.  `Tr7.Primitives` calls it exactly when
+an operand is heap-backed (bignum or rational), so the fixnum/flonum proof
+surface is untouched.  It also owns the mixed paths: if any operand is a
+flonum, all exact operands are converted to `Long_Float` first ("inexact
+wins"), with the same guarded division the flonum fast path uses.  `/`
+always goes through the tower so an exact non-dividing quotient becomes a
+rational; `expt` folds exact multiplication and turns negative exponents into
+reciprocals (bounded at exponent 10,000), and `quotient`/`remainder`/`modulo`
+are exact on bignums too.
+
+Reader and writer understand the tower: an out-of-range integer literal
+becomes a `Cell_Bigint`, `n/d` a normalized rational, and the writer prints
+`1/2`, `-3/4` and bignums directly from their text.  `string->number` and
+`number->string` reuse the reader and writer, so they accept and produce the
+same forms.  The predicates `number?`, `integer?`, `rational?`, `real?`,
+`complex?`, `exact?`, `inexact?`, `zero?`, `positive?`, `negative?`, `odd?`
+and `even?` cover the new values, and `eqv?` compares numeric values with
+matching exactness while `=` compares across exactness.
+
+A complex number is `Cell_Complex` with `Car`/`Cdr` holding its real and
+imaginary parts as real values.  `Tr7.Numbers.Make_Complex` collapses an exact
+zero imaginary part to the real value; `make-polar` produces flonum parts
+through the trusted `Tr7.IEEE` sine and cosine.  Addition and subtraction are
+componentwise, multiplication and division use the usual cross terms, and a
+mixed real/complex operation promotes the real operand to an exact-zero
+imaginary part.  `eqv?` requires matching exactness per part, while `=` uses
+numeric equality; ordering comparisons reject a genuinely complex operand.
+The reader accepts `a+bi`, `a-bi`, `+i`, `-i` and a bare imaginary part (`2i`),
+but a bare `i` stays a symbol because R7RS requires the sign for the unit.
+The writer prints `a+bi`, `a-bi`, and uses the bare `i` / `-i` forms for unit
+imaginary parts.  Precedence is textual: the split is the last `+` or `-` that
+is not part of an exponent, so `1e3+2i` reads as expected.
 
 ## Flonums
 

@@ -88,7 +88,10 @@ Results, one entry per closed step of the plan:
 | wind re-entry through continuations | 4,102 |
 | relaxed initialization of the GC root scratch array | 4,138 |
 | records, SRFI-1 prelude, cross-wind continuations | 4,412 |
-| nested ellipses + hygienic template binders | **4,888** |
+| nested ellipses + hygienic template binders | 4,888 |
+| `equal?`, arena-bounded list walks, mixed flonums, SRFI-1 multi-list | 4,578 |
+| bignums, exact rationals and complex numbers (numeric tower) | 5,484 |
+| **integrated tree (all four lines above merged)** | **6,138** |
 
 Every row is 0 unproved, 0 justified, 0 warnings, with flow, initialization
 and non-aliasing fully proved and a warning-free build.
@@ -108,7 +111,7 @@ instead of asking the prover to reason about a wide multiply.
 
 ## Gold hardening audit (M5)
 
-At the accepted state (2026-11-14, 4,888 checks):
+At the accepted state (2026-11-14, 6,138 checks):
 
 - every unit under `tr7/src` is `SPARK_Mode => On`; `tr7i` and `tr7_c` are the
   documented `SPARK_Mode => Off` trusted boundary.  The three constant
@@ -127,13 +130,13 @@ Summary by obligation category from `gnatprove.out`:
 
 | category | checks | proved |
 | --- | --- | --- |
-| Initialization | 1,610 | 1,610 |
+| Initialization | 2,019 | 2,019 |
 | Non-Aliasing | 12 | 12 |
-| Run-time Checks | 971 | 971 |
-| Assertions | 477 | 477 |
-| Functional Contracts | 1,646 | 1,646 |
-| Termination | 172 | 172 (75 by flow analysis, 97 by the provers) |
-| **Total** | **4,888** | **4,888** |
+| Run-time Checks | 1,151 | 1,151 |
+| Assertions | 562 | 562 |
+| Functional Contracts | 2,166 | 2,166 |
+| Termination | 228 | 228 (119 by flow analysis, 109 by the provers) |
+| **Total** | **6,138** | **6,138** |
 
 ### Contract review
 

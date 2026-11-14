@@ -1,11 +1,11 @@
 # M5 — GC reachability proof: completion report
 
 **Status: M5 complete.  The M5 gate was green at 2,895 checks; it is now
-4,578 after the follow-up core-procedure, eval, sequence/number,
+6,138 after the follow-up core-procedure, eval, sequence/number,
 `syntax-rules`, comparison/constructor, values-binding, review-fix,
-records/SRFI-1 and equal?/flonum-conformance
-batches, still with
-0 unproved, 0 justified, 0 warnings and 56 suites green, each also run under stress GC
+records/SRFI-1, equal?/flonum-conformance, macro-hygiene, numeric-tower and
+C-ABI batches, still with
+0 unproved, 0 justified, 0 warnings and 58 suites green, each also run under stress GC
 (level 4, 5 s, `-j6`, `--checks-as-errors`).**  Last updated: 2026-11-14.
 
 This document records how the reachability/liveness obligation was closed.  It
@@ -124,7 +124,7 @@ stress suite run for minutes.  It was discarded in favour of the worklist.
 
 ```sh
 ./scripts/build.sh        # checked build (TR7_CHECKS=on by default)
-./scripts/test.sh         # 52 suites, normal + stress; prints ms per suite
+./scripts/test.sh         # 58 suites, normal + stress; prints ms per suite
 ./scripts/prove.sh        # full gate, 5 s, -j6
 TIMEOUT=20 ./scripts/prove.sh   # only for a recorded hard check
 ./scripts/bench.sh        # checks off, removes objects afterwards

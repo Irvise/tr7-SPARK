@@ -77,6 +77,10 @@ is
       P_Symbol_P,
       P_Char_P,
       P_Number_P,
+      P_Integer_P,
+      P_Rational_P,
+      P_Real_P,
+      P_Complex_P,
       P_Procedure_P,
       P_Set_Car,
       P_Set_Cdr,
@@ -129,6 +133,12 @@ is
       --  Deep equality: `equal?` and the R7RS `member`/`assoc` built on it.
       P_Member,
       P_Assoc,
-      P_Equal_P);
+      P_Equal_P,
+      --  Complex numbers.
+      P_Make_Rectangular,
+      P_Make_Polar,
+      P_Real_Part,
+      P_Imag_Part,
+      P_Magnitude);
 
 end Tr7.Ids;
