@@ -3,10 +3,11 @@
 ## Current status
 
 M0–M5 are complete and the v1 scope below is implemented: the verified core,
-REPL and script runner, the C ABI subset, the conformance suites, and the
-mark-sweep reachability proof.  The gate is green at 6,138 checks (level 4,
-5 s per check, `--checks-as-errors`), with no unproved, justified or assumed
-checks and 58 green suites (each also run under stress GC).
+REPL and script runner, the C ABI (102 of 183 `tr7.h` symbols implemented,
+with a differential harness against upstream C TR7), the conformance suites,
+and the mark-sweep reachability proof.  The gate is green at 6,138 checks
+(level 4, 5 s per check, `--checks-as-errors`), with no unproved, justified
+or assumed checks and 58 green suites (each also run under stress GC).
 
 Design decisions taken along the way are recorded in `docs/findings.md`; the
 ones that shape the code most are the product-safe fixnum range
@@ -146,7 +147,7 @@ not declared as a crate dependency, so `alr build` requires only GNAT and GPR.
 | M1 | 1-2 weeks | Values, arena, symbols, numbers, pairs, strings, vectors, bytevectors; GC skeleton |
 | M2 | 2-3 weeks | Reader/writer, full CEK machine, core special forms, tail calls |
 | M3 | 2 weeks | Core primitives, errors, restricted `call/cc`, `dynamic-wind`, `values` -- **complete**: `error`, `values`/`call-with-values`, restricted `call/cc` and `dynamic-wind` are in (`tests/error.scm`, `tests/values.scm`, `tests/callcc.scm`, `tests/wind.scm`) |
-| M4 | 2 weeks | String ports, REPL, C ABI subset + generated stubs, core test suite -- **complete**: string ports (`tests/ports.scm`), the REPL, the C ABI (six contracted entry points, 177 generated stubs, `tests/abi_demo.c`) and 44 test runs |
+| M4 | 2 weeks | String ports, REPL, C ABI subset + generated stubs, core test suite -- **complete**: string ports (`tests/ports.scm`), the REPL, the C ABI (102 of 183 symbols implemented, the rest generated stubs, `tests/abi_demo.c`) and 44 test runs |
 | M5 | 2-3 weeks | Mark-sweep GC proof, Gold hardening, contracts, benchmarks, report -- **complete**: `Tr7.Reach` proves reachable cells are marked and the sweep never frees them, the collector is split into epoch jump / worklist drain / read-only verification / sweep, and the gate is green with zero unproved checks |
 
 Size: about 15k lines of Ada in `tr7/src`, plus the REPL, C ABI, generated

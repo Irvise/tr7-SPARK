@@ -2,4 +2,16 @@ id=tr7-ada version=0.1.0
 abi ok
 error: boom
 still alive
+int=42 neg=-7 big=nil=1 eq=1
+char=A uni=1
+len=2 rev=2 dotted=-3 cars=2
+app=3 mem=1
+str=Xbc sym=hello look=1
+vec=2 v2l=3 l2v=2
+1 Xbc
+(1 2)
+eval=3 apply0=0 slot=1
+defined=7
+imported=3
+negatives ok
 abi: ok

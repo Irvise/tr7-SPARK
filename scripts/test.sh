@@ -117,4 +117,16 @@ else
    status=1
 fi
 
+#  C ABI: differential test against upstream C TR7, the independent oracle.
+#  The script skips itself (exit 0) when no upstream checkout is available,
+#  so the gate stays green without an oracle; with one present, a report
+#  mismatch fails the run.
+if python3 -c 'import sys' 2>/dev/null && sh "$root/scripts/diff_upstream.sh" > /tmp/tr7-diff.log 2>&1; then
+   tail -1 /tmp/tr7-diff.log
+else
+   echo "test: abi (differential) FAILED" >&2
+   cat /tmp/tr7-diff.log >&2
+   status=1
+fi
+
 exit "$status"

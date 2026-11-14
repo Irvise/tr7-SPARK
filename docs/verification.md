@@ -91,6 +91,7 @@ Results, one entry per closed step of the plan:
 | nested ellipses + hygienic template binders | 4,888 |
 | `equal?`, arena-bounded list walks, mixed flonums, SRFI-1 multi-list | 4,578 |
 | bignums, exact rationals and complex numbers (numeric tower) | 5,484 |
+| C ABI value layer (102/183 symbols, negative tests, differential harness) | 4,412 |
 | **integrated tree (all four lines above merged)** | **6,138** |
 
 Every row is 0 unproved, 0 justified, 0 warnings, with flow, initialization
@@ -113,13 +114,17 @@ instead of asking the prover to reason about a wide multiply.
 
 At the accepted state (2026-11-14, 6,138 checks):
 
-- every unit under `tr7/src` is `SPARK_Mode => On`; `tr7i` and `tr7_c` are the
-  documented `SPARK_Mode => Off` trusted boundary.  The three constant
-  functions in `Tr7.IEEE` have `SPARK_Mode => Off` bodies because their
-  values come from the Ada runtime's IEEE overflow behaviour; they return
-  only +Inf/-Inf/NaN and are recorded as a trusted boundary;
+- every unit under `tr7/src` is `SPARK_Mode => On`; `tr7i` is the documented
+  `SPARK_Mode => Off` trusted boundary, and `tr7_c` keeps its package spec
+  `On` while every raw-address and foreign-value body is individually
+  `SPARK_Mode => Off`.  The IEEE boundary functions in `Tr7.IEEE` have
+  `SPARK_Mode => Off` bodies because their values come from the Ada runtime
+  and libm; they are recorded as a trusted boundary, and callers check what
+  comes back.  `tr7_c`'s body carries one scoped
+  `pragma Suppress (Validity_Check)` for IEEE doubles crossing the C ABI,
+  explained in place; it is outside `tr7/src`;
 - `grep` finds no `pragma Assume`, `pragma Annotate` or `pragma Suppress`
-  under `tr7/src`;
+  under `tr7/src` (the one `Suppress` above is confined to `tr7_c`);
 - `gnatprove.out` has an empty *Justified* and *Unproved* column, and every
   unit line reports "0 warnings and 0 pragma Assume statements";
 - the checked build (`-gnata -gnatwa`) is warning-free;
@@ -146,7 +151,38 @@ selectors and accessors are deliberately Pre-only: `Kind_Of`, `Car_Of`,
 `Cdr_Of`, `Lookup` and most constructors constrain safety and readiness, not
 their functional result.  Value predicates and the reachability lattice are
 total expression functions.  The C ABI subprograms in `tr7_c` keep their
-contracts and are documented as trusted bodies.  The collector's postcondition
-states the three closedness facts separately and never mentions `Reachable`;
-the sweep's liveness goal lives in `Tr7.Reach` loop invariants, which the
-policy file compiles away.
+contracts and are documented as trusted bodies: every predicate's Post pins
+its answer to 0/1, every constructor's Post pins its result to the encoding
+its argument names or the failure constant, and the bodies validate
+pointers, ranges and engine identity explicitly (`pragma Suppress
+(Validity_Check)` is scoped to the trusted body of `tr7_c` alone, because
+IEEE inf/NaN must cross that boundary; see `docs/findings.md`).  The
+collector's postcondition states the three closedness facts separately
+and never mentions `Reachable`; the sweep's liveness goal lives in
+`Tr7.Reach` loop invariants, which the policy file compiles away.
+
+## The differential harness
+
+```sh
+./scripts/diff_upstream.sh [path-to-upstream-checkout]
+```
+
+Compiles `tests/abi_differential.c` twice -- against a library built from
+the upstream checkout's `tr7.c` (scratch directory, checkout untouched) and
+against `libTr7_C.a` -- and diffs the reports.  81 cases currently agree.
+With no oracle present the script reports "skipped" and exits 0, so it is
+not a required gate without one; `scripts/test.sh` runs it and fails the
+gate only on a real mismatch or a build failure when an oracle *is*
+available.  The excluded divergences are listed in
+`docs/architecture.md` (Boundary) and `docs/findings.md`.
+
+## Gate status (integrated tree, 2026-11-14)
+
+- `./scripts/build.sh`: warning-free (core, ABI library, REPL).
+- `./scripts/test.sh`: 58 `.scm` suites, each run plain and under
+  stress GC (115 suite runs excluding the gc suite's plain run, plus its
+  dedicated stress run), the long-line/CRLF check, the ABI stub check,
+  the ABI C demo, and the differential harness against upstream -- 119
+  checks, all green.
+- `./scripts/prove.sh` (TIMEOUT=5): 6,138 checks, 0 unproved, 0
+  justified, 0 flow warnings.
